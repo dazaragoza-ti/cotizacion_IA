@@ -1,299 +1,160 @@
-import os
-import fitz  # PyMuPDF
-import easyocr
-import json
-import asyncio
-import urllib.parse  # Para codificar de forma segura las credenciales en la URL
-from fastapi import FastAPI, UploadFile, File, Form
-from supabase import create_client, Client
-from pydantic import BaseModel
-from groq import Groq
-from anthropic import Anthropic  
-from dotenv import load_dotenv
-from contextlib import asynccontextmanager
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Visualizador de Racks 3D - Autologin</title>
+    <link rel="icon" href="data:,">
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js](https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js)"></script>
+    <script src="[https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js](https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js)"></script>
+    <script src="[https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+    <header class="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700 shadow-lg">
+        <h1 class="font-bold text-lg">RackBuilder 3D</h1>
+        <div id="panel-credenciales" class="flex gap-2 text-xs">
+            <input type="text" id="db-url" placeholder="Supabase URL" class="bg-slate-950 p-1.5 rounded text-white border border-slate-700">
+            <input type="password" id="db-key" placeholder="Anon Key" class="bg-slate-950 p-1.5 rounded text-white border border-slate-700">
+            <button id="btn-conectar" class="bg-indigo-600 px-4 py-1.5 rounded font-bold">Conectar</button>
+        </div>
+        <div id="badge-autologin" class="hidden bg-emerald-950 text-emerald-400 text-xs px-3.5 py-1.5 rounded-full font-semibold">
+            <span>Acceso Inteligente por Enlace Activo</span>
+        </div>
+    </header>
 
-# Importaciones para el Bot de Telegram
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 p-4">
+        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col justify-between">
+            <div class="space-y-4">
+                <div>
+                    <h2 class="text-sm text-slate-400">Estado</h2>
+                    <span id="status" class="text-red-400 font-bold text-sm">Desconectado</span>
+                </div>
+                <hr class="border-slate-700">
+                <div id="info" class="text-xs space-y-3">
+                    <p class="text-slate-400 italic">Esperando sincronización...</p>
+                </div>
+                <div class="bg-slate-950 p-3 rounded-lg">
+                    <div id="console-log" class="text-[10px] font-mono text-slate-400 h-28 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+        <div class="lg:col-span-3 bg-slate-950 rounded-xl min-h-[550px] border border-slate-800" id="canvas-container"></div>
+    </main>
 
-# Cargar variables de entorno
-load_dotenv()
+    <script>
+        let scene, camera, renderer, controls, group;
+        let supabaseClient = null;
+        let targetSessionId = null;
+        const container = document.getElementById('canvas-container');
 
-# Inicializaciones de clientes de APIs y Base de Datos
-supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-ocr_reader = easyocr.Reader(['es'])
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-# URL de tu visualizador alojado en GitHub Pages
-URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/"
-
-def consultar_catalogo_piezas() -> list:
-    """
-    Trae el inventario de componentes reales disponibles de Supabase.
-    Si la tabla está vacía, no existe, o la consulta falla, provee un catálogo técnico
-    con valores de ingeniería por defecto para evitar que Claude se quede sin contexto de diseño.
-    """
-    fallback_piezas = [
-        {"sku": "VIGA-LIG-2400", "nombre": "Viga Ligera 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 800},
-        {"sku": "VIGA-PES-2400", "nombre": "Viga Pesada 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 2200},
-        {"sku": "MARCO-ALT-4000", "nombre": "Marco Estructural 4m", "tipo": "marco", "altura_metros": 4.0, "profundidad_metros": 1.0},
-        {"sku": "MENSULA-ESTANDAR", "nombre": "Ménsula de Ensamble", "tipo": "mensula"}
-    ]
-    try:
-        resultado = supabase.table("catalogo_piezas").select("*").execute()
-        if resultado.data and len(resultado.data) > 0:
-            return resultado.data
-        return fallback_piezas
-    except Exception:
-        return fallback_piezas
-
-def obtener_ultimo_diseno(session_id: str) -> dict | None:
-    """
-    Recupera la versión más reciente del diseño actual para esta sesión de chat.
-    Si es la primera interacción, retorna None de forma segura.
-    """
-    try:
-        resultado = supabase.table("disenos_racks").select("*").eq("session_id", session_id).order("version_actual", desc=True).limit(1).execute()
-        return resultado.data[0] if resultado.data else None
-    except Exception:
-        return None
-
-def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
-    """
-    Lógica del Agente de Ensamble:
-    1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
-    2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
-       recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
-    """
-    catalogo_disponible = consultar_catalogo_piezas()
-    diseno_previo = obtener_ultimo_diseno(session_id)
-
-    # CORRECCIÓN DE ESQUEMA: Se eliminó la doble propiedad "matriz_ensamble_3d" interna. 
-    # Ahora marcos, vigas y ménsulas viven directamente en la raíz de la estructura de ensamble.
-    herramienta_guardar_diseno = {
-        "name": "guardar_diseno_3d",
-        "description": "Registra la matriz y geometría de ensamble 3D del rack.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "tipo_rack": {"type": "string"},
-                "peso_maximo_por_nivel_kg": {"type": "number"},
-                "numero_niveles": {"type": "integer"},
-                "marcos": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
-                        }
-                    }
-                },
-                "vigas": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "nivel": {"type": "integer"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
-                        }
-                    }
-                },
-                "mensulas": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "nivel": {"type": "integer"}, 
-                            "lado": {"type": "string"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
-                        }
-                    }
-                },
-                "comentarios_adicionales": {"type": "string"}
-            },
-            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "marcos", "vigas", "mensulas", "comentarios_adicionales"]
+        function debugLog(mensaje, esError = false) {
+            const consola = document.getElementById('console-log');
+            consola.innerHTML += `<p class="${esError ? 'text-red-400' : 'text-slate-300'}">&gt; ${mensaje}</p>`;
+            consola.scrollTop = consola.scrollHeight;
         }
-    }
 
-    system_prompt = (
-        "Eres un Ingeniero CAD Senior especializado en modelado espacial de racks industriales en 3D.\n"
-        "Tu única tarea es calcular la colocación y rotación de componentes físicos en metros (ejes X, Y, Z).\n\n"
-        "REGLAS GEOMÉTRICAS CLAVE:\n"
-        "- Eje Y representa la altura. Las vigas de cada nivel deben espaciarse uniformemente (ej: nivel 1 en Y=0.8, nivel 2 en Y=1.8, etc.).\n"
-        "- Eje X representa el ancho. El marco izquierdo se sitúa en X = -1.2, y el marco derecho en X = 1.2.\n"
-        "- Las vigas horizontales deben centrarse en X = 0.\n"
-        "- Las ménsulas de acople deben situarse exactamente sobre los marcos (ej: en X = -1.2 para el lado izquierdo y X = 1.2 para el derecho) a la misma altura Y de la viga del nivel.\n\n"
-        f"INVENTARIO DISPONIBLE EN SUPABASE:\n{json.dumps(catalogo_disponible, indent=2)}\n"
-    )
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090d16);
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(4, 4, 8);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth || 800, container.clientHeight || 550);
+            container.appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            group = new THREE.Group();
+            scene.add(group);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            let dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+            scene.add(new THREE.GridHelper(20, 20, 0x4338ca, 0x1e293b));
+            animate();
+            checarAutoLoginURL();
+        }
 
-    if diseno_previo:
-        system_prompt += (
-            "\nESTADO: Modo Auto-corrección.\n"
-            "El usuario está enviando una solicitud para modificar un diseño anterior que ya existe en el sistema.\n"
-            "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario "
-            "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
-            "Mantén intactos todos los demás componentes y SKUs."
-        )
-        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
-        proxima_version = diseno_previo["version_actual"] + 1
-        solicitud_inicial = diseno_previo["solicitud_original"]
-        historial = diseno_previo.get("historial_comentarios", []) or []
-        historial.append(comentario_usuario)
-    else:
-        system_prompt += (
-            "\nESTADO: Modo Diseño Nuevo.\n"
-            "Calcula la estructura de ensamble óptima desde cero. Selecciona los SKUs ideales que soporten la capacidad de carga indicada, "
-            "establece los niveles requeridos y define la distribución inicial de las coordenadas espaciales X, Y, Z."
-        )
-        prompt_usuario = f"Requerimiento: {comentario_usuario}"
-        proxima_version = 1
-        solicitud_inicial = comentario_usuario
-        historial = []
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
 
-    response = anthropic_client.messages.create(
-        model="claude-3-5-sonnet-latest",
-        max_tokens=3000,
-        temperature=0,
-        system=system_prompt,
-        tools=[herramienta_guardar_diseno],
-        tool_choice={"type": "tool", "name": "guardar_diseno_3d"},
-        messages=[{"role": "user", "content": prompt_usuario}]
-    )
+        function renderRack(matriz) {
+            while(group.children.length > 0) { group.remove(group.children[0]); }
+            if (!matriz) return;
 
-    tool_calls = [c for c in response.content if c.type == "tool_use"]
-    if not tool_calls:
-        raise ValueError("Claude no pudo mapear de forma estructurada las coordenadas en la herramienta del sistema.")
-        
-    datos_ensamble = tool_calls[0].input
+            if(matriz.marcos) {
+                matriz.marcos.forEach(m => {
+                    const geo = new THREE.BoxGeometry(0.1, 4, 1);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(m.posicion.x, m.posicion.y + 2, m.posicion.z);
+                    group.add(mesh);
+                });
+            }
+            if(matriz.vigas) {
+                matriz.vigas.forEach(v => {
+                    const geo = new THREE.BoxGeometry(2.4, 0.12, 0.06);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0xeab308 });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(v.posicion.x, v.posicion.y, v.posicion.z);
+                    group.add(mesh);
+                });
+            }
+            if(matriz.mensulas) {
+                matriz.mensulas.forEach(men => {
+                    const geo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x64748b });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(men.posicion.x, men.posicion.y, men.posicion.z);
+                    group.add(mesh);
+                });
+            }
+        }
 
-    # Inserción limpia en base de datos sin dobles anidaciones
-    supabase.table("disenos_racks").insert({
-        "vendedor_id": vendedor_id,
-        "session_id": session_id,
-        "solicitud_original": solicitud_inicial,
-        "version_actual": proxima_version,
-        "matriz_ensamble_3d": datos_ensamble,
-        "historial_comentarios": historial
-    }).execute()
+        async function checarNuevasCotizaciones() {
+            if (!supabaseClient) return;
+            let query = supabaseClient.from('disenos_racks').select('*').order('version_actual', { ascending: false });
+            if (targetSessionId) { query = query.eq('session_id', targetSessionId); }
+            const { data, error } = await query.limit(1);
+            
+            if (data && data.length > 0) {
+                const fila = data[0];
+                let jsonDiseno = typeof fila.matriz_ensamble_3d === 'string' ? JSON.parse(fila.matriz_ensamble_3d) : fila.matriz_ensamble_3d;
+                document.getElementById('info').innerHTML = `<b>Modelo:</b> ${jsonDiseno.tipo_rack}<br><b>Carga:</b> ${jsonDiseno.peso_maximo_por_nivel_kg} kg/nivel`;
+                renderRack(jsonDiseno);
+            }
+        }
 
-    return {"version": proxima_version, "variables": datos_ensamble}
+        function checarAutoLoginURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const rawUrl = urlParams.get('sb_url');
+            const rawKey = urlParams.get('sb_key');
+            if (rawUrl && rawKey) {
+                targetSessionId = urlParams.get('session_id');
+                conectarSupabase(decodeURIComponent(rawUrl), decodeURIComponent(rawKey), true);
+            }
+        }
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📐 **Asistente de Racks 3D**\n\n"
-        "Dime qué necesitas (ej: un rack de 3 niveles para 1200kg) y armaré el diseño.\n"
-        "Puedes interactuar conmigo enviando:\n"
-        "1️⃣ Mensajes de texto directos o correcciones.\n"
-        "2️⃣ Notas de voz explicando tu requerimiento.\n"
-        "3️⃣ Fotos de requisiciones impresas o bosquejos.\n"
-        "4️⃣ Archivos PDF con fichas técnicas o planos."
-    )
+        function conectarSupabase(url, key, isAutoLogin = false) {
+            supabaseClient = supabase.createClient(url, key);
+            document.getElementById('status').innerText = "Conectado";
+            document.getElementById('status').className = "text-emerald-400 font-bold";
+            if (isAutoLogin) {
+                document.getElementById('panel-credenciales').classList.add('hidden');
+                document.getElementById('badge-autologin').classList.remove('hidden');
+            }
+            checarNuevasCotizaciones();
+            supabaseClient.channel('cambios_disenos').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'disenos_racks' }, payload => {
+                if (!targetSessionId || payload.new.session_id === targetSessionId) { checarNuevasCotizaciones(); }
+            }).subscribe();
+        }
 
-async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    session_id = str(update.effective_chat.id)
-    vendedor_anon = f"Telegram_{update.effective_user.first_name}"
-    mensaje_espera = await update.message.reply_text("📐 Calculando geometría 3D...")
-    
-    foto = update.message.photo
-    documento = update.message.document
-    texto = update.message.text
-    voz = update.message.voice
-    
-    temp_path = ""
-    texto_limpio = ""
+        document.getElementById('btn-conectar').addEventListener('click', () => {
+            conectarSupabase(document.getElementById('db-url').value.trim(), document.getElementById('db-key').value.trim(), false);
+        });
 
-    try:
-        if texto:
-            texto_limpio = texto
-        elif voz:
-            file = await context.bot.get_file(voz.file_id)
-            temp_path = f"tg_temp_{voz.file_id}.ogg"
-            await file.download_to_drive(temp_path)
-            texto_limpio = transcribir_audio_groq(temp_path)
-        elif documento:
-            file = await context.bot.get_file(documento.file_id)
-            extension = documento.file_name.split(".")[-1].lower()
-            temp_path = f"tg_temp_{documento.file_name}"
-            await file.download_to_drive(temp_path)
-            texto_limpio = extraer_texto_pdf(temp_path) if extension == "pdf" else extraer_texto_imagen(temp_path)
-        elif foto:
-            file = await context.bot.get_file(foto[-1].file_id)
-            temp_path = f"tg_temp_{foto[-1].file_id}.jpg"
-            await file.download_to_drive(temp_path)
-            texto_limpio = extraer_texto_imagen(temp_path)
-        else:
-            await mensaje_espera.edit_text("❌ Formato de mensaje no soportado.")
-            return
-
-        resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
-        version = resultado.get("version")
-        datos = resultado.get("variables")
-        
-        vigas_list = datos.get("vigas", [])
-        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU `{v.get('sku')}` en altura Y={v.get('posicion', {}).get('y')}m" for v in vigas_list]) if vigas_list else "  • No se generaron vigas."
-
-        # OBTENCIÓN Y CODIFICACIÓN DE CREDENCIALES DE SUPABASE
-        sb_url = os.getenv("SUPABASE_URL", "")
-        sb_key = os.getenv("SUPABASE_KEY", "")
-        
-        # Escapamos los strings para que viajen de forma segura en la URL sin romper caracteres especiales
-        encoded_url = urllib.parse.quote_plus(sb_url)
-        encoded_key = urllib.parse.quote_plus(sb_key)
-        
-        # Enlace inteligente auto-conectable que viaja con el ID de sesión del usuario de Telegram
-        link_autenticado = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
-
-        respuesta = (
-            f"⚙️ **¡Diseño Listo! (Versión {version})**\n\n"
-            f"📦 **Modelo:** {datos.get('tipo_rack')}\n"
-            f"⚖️ **Carga:** {datos.get('peso_maximo_por_nivel_kg')} kg/nivel\n"
-            f"🛠️ **Distribución de Vigas:**\n{vigas_resumen}\n\n"
-            f"📝 **Notas:** {datos.get('comentarios_adicionales')}\n\n"
-            f"🌐 [VER MODELO 3D EN TU VISOR]({link_autenticado})"
-        )
-        await mensaje_espera.edit_text(respuesta, parse_mode="Markdown")
-
-    except Exception as e:
-        await mensaje_espera.edit_text(f"❌ Error al calcular coordenadas:\n`{str(e)}`", parse_mode="Markdown")
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
-
-def extraer_texto_pdf(file_path: str) -> str:
-    doc = fitz.open(file_path)
-    return "".join([pagina.get_text() for pagina in doc])
-
-def extraer_texto_imagen(file_path: str) -> str:
-    return " ".join(ocr_reader.readtext(file_path, detail=0))
-
-def transcribir_audio_groq(file_path: str) -> str:
-    with open(file_path, "rb") as file:
-        transcription = groq_client.audio.transcriptions.create(
-            file=(os.path.basename(file_path), file.read()),
-            model="whisper-large-v3",
-            language="es",
-            response_format="text"
-        )
-    return transcription
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    tg_app = Application.builder().token(BOT_TOKEN).build()
-    tg_app.add_handler(CommandHandler("start", start_command))
-    filtro_total = filters.Document.ALL | filters.PHOTO | filters.TEXT | filters.VOICE
-    tg_app.add_handler(MessageHandler(filtro_total, manejar_mensaje_telegram))
-    await tg_app.initialize()
-    await tg_app.start()
-    await tg_app.updater.start_polling()
-    print("🤖 Servidor de Ingeniería CAD e Inteligencia de Ensambles en ejecución...")
-    yield
-    await tg_app.updater.stop()
-    await tg_app.stop()
-    await tg_app.shutdown()
-
-app = FastAPI(lifespan=lifespan)
+        window.onload = init3D;
+    </script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import fitz  # PyMuPDF
 import easyocr
 import json
 import asyncio
+import urllib.parse  # Para codificar de forma segura las credenciales en la URL
 from fastapi import FastAPI, UploadFile, File, Form
 from supabase import create_client, Client
 from pydantic import BaseModel
@@ -13,18 +14,20 @@ from contextlib import asynccontextmanager
 
 # Importaciones para el Bot de Telegram
 from telegram import Update
+from telegram.request import HTTPXRequest  # Para controlar timeouts de conexión
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Cargar variables de entorno
 load_dotenv()
 
-# Inicializaciones de clientes
+# Inicializaciones de clientes de APIs y Base de Datos
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 ocr_reader = easyocr.Reader(['es'])
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+# URL de tu visualizador alojado en GitHub Pages
 URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/"
 
 def consultar_catalogo_piezas() -> list:
@@ -60,7 +63,7 @@ def obtener_ultimo_diseno(session_id: str) -> dict | None:
 
 def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
     """
-    Lógica de Agente de Ensamble:
+    Lógica del Agente de Ensamble:
     1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
     2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
        recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
@@ -68,27 +71,52 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     catalogo_disponible = consultar_catalogo_piezas()
     diseno_previo = obtener_ultimo_diseno(session_id)
 
+    # Estructura limpia de componentes en la raíz del ensamble
     herramienta_guardar_diseno = {
         "name": "guardar_diseno_3d",
-        "description": "Registra la matriz de ensamble 3D.",
+        "description": "Registra la matriz y geometría de ensamble 3D del rack.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "tipo_rack": {"type": "string"},
                 "peso_maximo_por_nivel_kg": {"type": "number"},
                 "numero_niveles": {"type": "integer"},
-                "matriz_ensamble_3d": {
-                    "type": "object",
-                    "properties": {
-                        "marcos": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}},
-                        "vigas": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "nivel": {"type": "integer"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}},
-                        "mensulas": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "nivel": {"type": "integer"}, "lado": {"type": "string"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}}
-                    },
-                    "required": ["marcos", "vigas", "mensulas"]
+                "marcos": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "vigas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "mensulas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "lado": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
                 },
                 "comentarios_adicionales": {"type": "string"}
             },
-            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "matriz_ensamble_3d", "comentarios_adicionales"]
+            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "marcos", "vigas", "mensulas", "comentarios_adicionales"]
         }
     }
 
@@ -106,10 +134,10 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     if diseno_previo:
         system_prompt += (
             "\nESTADO: Modo Auto-corrección.\n"
-            "El usuario está enviando una solicitud para modificar un diseño anterior que ya existe en el sistema.\n"
-            "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario (ej. 'sube el segundo piso', 'hazlo más alto') "
+            "El usuario está enviando una solicitud para modificar un diseño anterior.\n"
+            "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario "
             "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
-            "Mantén intactos todos los demás componentes y SKUs. Si una viga cambia de altura Y, sus ménsulas asociadas en ese nivel deben actualizarse idénticamente."
+            "Mantén intactos todos los demás componentes y SKUs."
         )
         prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
         proxima_version = diseno_previo["version_actual"] + 1
@@ -119,16 +147,13 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     else:
         system_prompt += (
             "\nESTADO: Modo Diseño Nuevo.\n"
-            "Calcula la estructura de ensamble óptima desde cero. Selecciona los SKUs ideales que soporten la capacidad de carga indicada, "
-            "establece los niveles requeridos y define la distribución inicial de las coordenadas espaciales X, Y, Z para que el rack "
-            "quede perfectamente alineado y ensamblado."
+            "Calcula la estructura de ensamble óptima desde cero."
         )
         prompt_usuario = f"Requerimiento: {comentario_usuario}"
         proxima_version = 1
         solicitud_inicial = comentario_usuario
         historial = []
 
-    # Uso del modelo correcto y alias oficial en producción para evitar 404
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=3000,
@@ -140,6 +165,9 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     )
 
     tool_calls = [c for c in response.content if c.type == "tool_use"]
+    if not tool_calls:
+        raise ValueError("Claude no pudo mapear de forma estructurada las coordenadas.")
+        
     datos_ensamble = tool_calls[0].input
 
     supabase.table("disenos_racks").insert({
@@ -154,8 +182,8 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     return {"version": proxima_version, "variables": datos_ensamble}
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📐 **Asistente de Racks 3D**\n\n"
+    mensaje_inicio = (
+        "📐 <b>Asistente de Racks 3D activo.</b>\n\n"
         "Dime qué necesitas (ej: un rack de 3 niveles para 1200kg) y armaré el diseño.\n"
         "Puedes interactuar conmigo enviando:\n"
         "1️⃣ Mensajes de texto directos o correcciones.\n"
@@ -163,6 +191,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3️⃣ Fotos de requisiciones impresas o bosquejos.\n"
         "4️⃣ Archivos PDF con fichas técnicas o planos."
     )
+    await update.message.reply_text(mensaje_inicio, parse_mode="HTML")
 
 async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_id = str(update.effective_chat.id)
@@ -178,7 +207,6 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
     texto_limpio = ""
 
     try:
-        # 1. Procesamiento según el canal de entrada
         if texto:
             texto_limpio = texto
         elif voz:
@@ -198,46 +226,43 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
             await file.download_to_drive(temp_path)
             texto_limpio = extraer_texto_imagen(temp_path)
         else:
-            await mensaje_espera.edit_text("❌ Formato de mensaje no soportado.")
+            await mensaje_espera.edit_text("❌ Formato no soportado.")
             return
 
-        # 2. Enviar los datos limpios extraídos al agente de Claude para el cálculo 3D
         resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
         version = resultado.get("version")
         datos = resultado.get("variables")
-        matriz = datos.get("matriz_ensamble_3d", {})
         
-        # Formatear el resumen de la pieza diseñada
-        vigas_list = matriz.get("vigas", [])
-        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU `{v.get('sku')}` en altura Y={v.get('posicion', {}).get('y')}m" for v in vigas_list]) if vigas_list else "  • No se generaron vigas."
+        vigas_list = datos.get("vigas", [])
+        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU <code>{v.get('sku')}</code> en Y={v.get('posicion', {}).get('y')}m" for v in vigas_list])
+
+        sb_url = os.getenv("SUPABASE_URL", "")
+        sb_key = os.getenv("SUPABASE_KEY", "")
         
-        # Mostrar desglose del JSON de ensamble en Telegram de manera segura
-        comp_string = json.dumps(matriz, indent=2, ensure_ascii=False)
-        comp_preview = comp_string[:300] + "..." if len(comp_string) > 300 else comp_string
+        encoded_url = urllib.parse.quote_plus(sb_url)
+        encoded_key = urllib.parse.quote_plus(sb_key)
+        
+        link_autenticado = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
 
-        transcripcion = f"🗣️ *Escuché:* \"_{texto_limpio}_\"\n\n" if voz else ""
-
-        respuesta = (
-            f"⚙️ **¡Diseño Listo! (Versión {version})**\n\n"
-            f"{transcripcion}"
-            f"📦 **Modelo:** {datos.get('tipo_rack')}\n"
-            f"⚖️ **Carga:** {datos.get('peso_maximo_por_nivel_kg')} kg/nivel\n"
-            f"🔢 **Niveles de Altura:** {datos.get('numero_niveles')}\n\n"
-            f"🛠️ **Distribución de Vigas:**\n{vigas_resumen}\n\n"
-            f"🛠️ **Estructura del Ensamble Interno:**\n"
-            f"```json\n{comp_preview}\n```\n"
-            f"📝 **Notas:** {datos.get('comentarios_adicionales')}\n\n"
-            f"🌐 [VER MODELO 3D EN TU VISOR]({URL_FRONTEND})"
+        transcripcion_html = f"🗣️ <b>Escuché:</b> <i>\"{texto_limpio}\"</i>\n\n" if voz else ""
+        respuesta_html = (
+            f"⚙️ <b>¡Diseño Listo! (Versión {version})</b>\n\n"
+            f"{transcripcion_html}"
+            f"📦 <b>Modelo:</b> {datos.get('tipo_rack')}\n"
+            f"⚖️ <b>Carga:</b> {datos.get('peso_maximo_por_nivel_kg')} kg/nivel\n"
+            f"🔢 <b>Niveles de Altura:</b> {datos.get('numero_niveles')}\n\n"
+            f"🛠️ <b>Distribución de Vigas:</b>\n{vigas_resumen}\n\n"
+            f"📝 <b>Notas:</b> {datos.get('comentarios_adicionales')}\n\n"
+            f"🌐 <a href=\"{link_autenticado}\"><b>VER MODELO 3D EN TU VISOR</b></a>"
         )
-        await mensaje_espera.edit_text(respuesta, parse_mode="Markdown")
+        await mensaje_espera.edit_text(respuesta_html, parse_mode="HTML", disable_web_page_preview=True)
 
     except Exception as e:
-        await mensaje_espera.edit_text(f"❌ Error al calcular coordenadas:\n`{str(e)}`", parse_mode="Markdown")
+        await mensaje_espera.edit_text(f"❌ <b>Error:</b> {str(e)}", parse_mode="HTML")
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
-# --- UTILERÍAS EXTRA ---
 def extraer_texto_pdf(file_path: str) -> str:
     doc = fitz.open(file_path)
     return "".join([pagina.get_text() for pagina in doc])
@@ -257,7 +282,10 @@ def transcribir_audio_groq(file_path: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    tg_app = Application.builder().token(BOT_TOKEN).build()
+    # 1. Configurar timeouts explícitos para mitigar retrasos de red con la API de Telegram
+    t_request = HTTPXRequest(connect_timeout=15.0, read_timeout=15.0)
+    
+    tg_app = Application.builder().token(BOT_TOKEN).request(t_request).build()
     tg_app.add_handler(CommandHandler("start", start_command))
     
     filtro_total = filters.Document.ALL | filters.PHOTO | filters.TEXT | filters.VOICE
@@ -265,11 +293,24 @@ async def lifespan(app: FastAPI):
     
     await tg_app.initialize()
     await tg_app.start()
-    await tg_app.updater.start_polling()
+    
+    # 2. Iniciar polling con un intervalo de timeout controlado y descartando actualizaciones pendientes de sesiones muertas
+    await tg_app.updater.start_polling(timeout=10, drop_pending_updates=True)
     print("🤖 Servidor de Ingeniería CAD e Inteligencia de Ensambles en ejecución...")
     yield
-    await tg_app.updater.stop()
-    await tg_app.stop()
-    await tg_app.shutdown()
+    
+    # 3. Apagado resiliente: intercepta problemas de timeout/red en tiempo de apagado para evitar tracebacks molestos en recarga
+    try:
+        if tg_app.updater and tg_app.updater.running:
+            await tg_app.updater.stop()
+    except Exception as e:
+        print(f"⚠️ Nota: Excepción capturada durante el apagado del updater (reintento omitido de forma segura): {e}")
+        
+    try:
+        await tg_app.stop()
+        await tg_app.shutdown()
+        print("🔌 Conexiones de Telegram cerradas con éxito.")
+    except Exception as e:
+        print(f"⚠️ Nota: Excepción capturada durante el apagado de la aplicación de Telegram: {e}")
 
 app = FastAPI(lifespan=lifespan)
