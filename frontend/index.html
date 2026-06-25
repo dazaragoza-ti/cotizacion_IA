@@ -1,132 +1,299 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador 3D - Ménsula Alineada</title>
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #0b0f19; font-family: sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        #info-panel {
-            position: absolute; top: 10px; left: 10px; background: rgba(15, 23, 42, 0.85);
-            color: #fff; padding: 15px; border-radius: 8px; border: 1px solid #334155;
-            max-width: 300px; font-size: 13px; pointer-events: none; z-index: 10;
+import os
+import fitz  # PyMuPDF
+import easyocr
+import json
+import asyncio
+import urllib.parse  # Para codificar de forma segura las credenciales en la URL
+from fastapi import FastAPI, UploadFile, File, Form
+from supabase import create_client, Client
+from pydantic import BaseModel
+from groq import Groq
+from anthropic import Anthropic  
+from dotenv import load_dotenv
+from contextlib import asynccontextmanager
+
+# Importaciones para el Bot de Telegram
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# Cargar variables de entorno
+load_dotenv()
+
+# Inicializaciones de clientes de APIs y Base de Datos
+supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+ocr_reader = easyocr.Reader(['es'])
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# URL de tu visualizador alojado en GitHub Pages
+URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/"
+
+def consultar_catalogo_piezas() -> list:
+    """
+    Trae el inventario de componentes reales disponibles de Supabase.
+    Si la tabla está vacía, no existe, o la consulta falla, provee un catálogo técnico
+    con valores de ingeniería por defecto para evitar que Claude se quede sin contexto de diseño.
+    """
+    fallback_piezas = [
+        {"sku": "VIGA-LIG-2400", "nombre": "Viga Ligera 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 800},
+        {"sku": "VIGA-PES-2400", "nombre": "Viga Pesada 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 2200},
+        {"sku": "MARCO-ALT-4000", "nombre": "Marco Estructural 4m", "tipo": "marco", "altura_metros": 4.0, "profundidad_metros": 1.0},
+        {"sku": "MENSULA-ESTANDAR", "nombre": "Ménsula de Ensamble", "tipo": "mensula"}
+    ]
+    try:
+        resultado = supabase.table("catalogo_piezas").select("*").execute()
+        if resultado.data and len(resultado.data) > 0:
+            return resultado.data
+        return fallback_piezas
+    except Exception:
+        return fallback_piezas
+
+def obtener_ultimo_diseno(session_id: str) -> dict | None:
+    """
+    Recupera la versión más reciente del diseño actual para esta sesión de chat.
+    Si es la primera interacción, retorna None de forma segura.
+    """
+    try:
+        resultado = supabase.table("disenos_racks").select("*").eq("session_id", session_id).order("version_actual", desc=True).limit(1).execute()
+        return resultado.data[0] if resultado.data else None
+    except Exception:
+        return None
+
+def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
+    """
+    Lógica del Agente de Ensamble:
+    1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
+    2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
+       recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
+    """
+    catalogo_disponible = consultar_catalogo_piezas()
+    diseno_previo = obtener_ultimo_diseno(session_id)
+
+    # CORRECCIÓN DE ESQUEMA: Se eliminó la doble propiedad "matriz_ensamble_3d" interna. 
+    # Ahora marcos, vigas y ménsulas viven directamente en la raíz de la estructura de ensamble.
+    herramienta_guardar_diseno = {
+        "name": "guardar_diseno_3d",
+        "description": "Registra la matriz y geometría de ensamble 3D del rack.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo_rack": {"type": "string"},
+                "peso_maximo_por_nivel_kg": {"type": "number"},
+                "numero_niveles": {"type": "integer"},
+                "marcos": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "vigas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "mensulas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "lado": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "comentarios_adicionales": {"type": "string"}
+            },
+            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "marcos", "vigas", "mensulas", "comentarios_adicionales"]
         }
-        h3 { margin: 0 0 8px 0; color: #f97316; }
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-</head>
-<body>
+    }
 
-    <div id="info-panel">
-        <h3>Ajuste de Precisión 3D</h3>
-        <p id="status">⏳ Descargando desde Supabase...</p>
-        <p id="dimensiones">Dimensiones: Analizando...</p>
-        <p style="color: #64748b; font-size: 11px; margin-top: 10px;">
-            * Usa el mouse para rotar e interactuar.<br>
-            * Líneas: Roja (X), Verde (Y), Azul (Z).
-        </p>
-    </div>
+    system_prompt = (
+        "Eres un Ingeniero CAD Senior especializado en modelado espacial de racks industriales en 3D.\n"
+        "Tu única tarea es calcular la colocación y rotación de componentes físicos en metros (ejes X, Y, Z).\n\n"
+        "REGLAS GEOMÉTRICAS CLAVE:\n"
+        "- Eje Y representa la altura. Las vigas de cada nivel deben espaciarse uniformemente (ej: nivel 1 en Y=0.8, nivel 2 en Y=1.8, etc.).\n"
+        "- Eje X representa el ancho. El marco izquierdo se sitúa en X = -1.2, y el marco derecho en X = 1.2.\n"
+        "- Las vigas horizontales deben centrarse en X = 0.\n"
+        "- Las ménsulas de acople deben situarse exactamente sobre los marcos (ej: en X = -1.2 para el lado izquierdo y X = 1.2 para el derecho) a la misma altura Y de la viga del nivel.\n\n"
+        f"INVENTARIO DISPONIBLE EN SUPABASE:\n{json.dumps(catalogo_disponible, indent=2)}\n"
+    )
 
-    <div id="canvas-container"></div>
+    if diseno_previo:
+        system_prompt += (
+            "\nESTADO: Modo Auto-corrección.\n"
+            "El usuario está enviando una solicitud para modificar un diseño anterior que ya existe en el sistema.\n"
+            "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario "
+            "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
+            "Mantén intactos todos los demás componentes y SKUs."
+        )
+        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
+        proxima_version = diseno_previo["version_actual"] + 1
+        solicitud_inicial = diseno_previo["solicitud_original"]
+        historial = diseno_previo.get("historial_comentarios", []) or []
+        historial.append(comentario_usuario)
+    else:
+        system_prompt += (
+            "\nESTADO: Modo Diseño Nuevo.\n"
+            "Calcula la estructura de ensamble óptima desde cero. Selecciona los SKUs ideales que soporten la capacidad de carga indicada, "
+            "establece los niveles requeridos y define la distribución inicial de las coordenadas espaciales X, Y, Z."
+        )
+        prompt_usuario = f"Requerimiento: {comentario_usuario}"
+        proxima_version = 1
+        solicitud_inicial = comentario_usuario
+        historial = []
 
-    <script>
-        const container = document.getElementById('canvas-container');
-        const statusText = document.getElementById('status');
-        const dimText = document.getElementById('dimensiones');
+    response = anthropic_client.messages.create(
+        model="claude-3-5-sonnet-latest",
+        max_tokens=3000,
+        temperature=0,
+        system=system_prompt,
+        tools=[herramienta_guardar_diseno],
+        tool_choice={"type": "tool", "name": "guardar_diseno_3d"},
+        messages=[{"role": "user", "content": prompt_usuario}]
+    )
 
-        // 1. ESCENARIO E ILUMINACIÓN GLOBAL
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0f172a);
-
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
-        camera.position.set(1.5, 1.5, 2); // Cámara posicionada en un ángulo ideal
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
-
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.target.set(0, 0.4, 0); // La cámara apunta ligeramente hacia arriba de la rejilla
-
-        // Iluminación potente
-        scene.add(new THREE.AmbientLight(0xffffff, 1.6));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-        dirLight.position.set(5, 10, 5);
-        scene.add(dirLight);
-
-        // Guías de ejes (XYZ)
-        const axesHelper = new THREE.AxesHelper(3);
-        scene.add(axesHelper);
-
-        // Cuadrícula del suelo
-        const gridHelper = new THREE.GridHelper(10, 20, 0x475569, 0x334155);
-        scene.add(gridHelper);
-
-        // 2. CARGADOR CON CORRECCIÓN DE ALTURA
-        const loader = new THREE.GLTFLoader();
+    tool_calls = [c for c in response.content if c.type == "tool_use"]
+    if not tool_calls:
+        raise ValueError("Claude no pudo mapear de forma estructurada las coordenadas en la herramienta del sistema.")
         
-        // Tu URL directa y funcional de Supabase
-        const urlPublica3D = "https://ltetbljizxngcwszyzmn.supabase.co/storage/v1/object/public/modelos/modelos%203d%20de%20racks/MENSULA_GOTA_CARGA_LIGERA_DERECHA.glb";
+    datos_ensamble = tool_calls[0].input
 
-        loader.load(urlPublica3D, (gltf) => {
-            const modelo = gltf.scene;
-            statusText.innerText = "✅ Cargado correctamente.";
-            statusText.style.color = "#22c55e";
+    # Inserción limpia en base de datos sin dobles anidaciones
+    supabase.table("disenos_racks").insert({
+        "vendedor_id": vendedor_id,
+        "session_id": session_id,
+        "solicitud_original": solicitud_inicial,
+        "version_actual": proxima_version,
+        "matriz_ensamble_3d": datos_ensamble,
+        "historial_comentarios": historial
+    }).execute()
 
-            // Medimos el volumen exacto del modelo CAD
-            const box = new THREE.Box3().setFromObject(modelo);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
+    return {"version": proxima_version, "variables": datos_ensamble}
 
-            dimText.innerHTML = `<b>Ancho:</b> ${size.x.toFixed(3)}m<br><b>Alto:</b> ${size.y.toFixed(3)}m<br><b>Fondo:</b> ${size.z.toFixed(3)}m`;
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📐 **Asistente de Racks 3D**\n\n"
+        "Dime qué necesitas (ej: un rack de 3 niveles para 1200kg) y armaré el diseño.\n"
+        "Puedes interactuar conmigo enviando:\n"
+        "1️⃣ Mensajes de texto directos o correcciones.\n"
+        "2️⃣ Notas de voz explicando tu requerimiento.\n"
+        "3️⃣ Fotos de requisiciones impresas o bosquejos.\n"
+        "4️⃣ Archivos PDF con fichas técnicas o planos."
+    )
 
-            // Autoescalado por si las unidades del software CAD vienen alteradas
-            const maxDim = Math.max(size.x, size.y, size.z);
-            let factorEscala = 1.0;
-            if (maxDim > 5 || maxDim < 0.05) {
-                factorEscala = 1.0 / maxDim;
-                modelo.scale.set(factorEscala, factorEscala, factorEscala);
-            }
+async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    session_id = str(update.effective_chat.id)
+    vendedor_anon = f"Telegram_{update.effective_user.first_name}"
+    mensaje_espera = await update.message.reply_text("📐 Calculando geometría 3D...")
+    
+    foto = update.message.photo
+    documento = update.message.document
+    texto = update.message.text
+    voz = update.message.voice
+    
+    temp_path = ""
+    texto_limpio = ""
 
-            // 🛠️ ALINEACIÓN DE PIVOTE INDUSTRIAL (CORRECCIÓN CRÍTICA)
-            // Centramos la pieza en X y Z. 
-            // En Y (altura), sumamos la mitad de su tamaño real para forzar a que su base toque la rejilla.
-            modelo.position.x = -center.x * factorEscala;
-            modelo.position.y = ((size.y / 2) - center.y) * factorEscala; 
-            modelo.position.z = -center.z * factorEscala;
+    try:
+        if texto:
+            texto_limpio = texto
+        elif voz:
+            file = await context.bot.get_file(voz.file_id)
+            temp_path = f"tg_temp_{voz.file_id}.ogg"
+            await file.download_to_drive(temp_path)
+            texto_limpio = transcribir_audio_groq(temp_path)
+        elif documento:
+            file = await context.bot.get_file(documento.file_id)
+            extension = documento.file_name.split(".")[-1].lower()
+            temp_path = f"tg_temp_{documento.file_name}"
+            await file.download_to_drive(temp_path)
+            texto_limpio = extraer_texto_pdf(temp_path) if extension == "pdf" else extraer_texto_imagen(temp_path)
+        elif foto:
+            file = await context.bot.get_file(foto[-1].file_id)
+            temp_path = f"tg_temp_{foto[-1].file_id}.jpg"
+            await file.download_to_drive(temp_path)
+            texto_limpio = extraer_texto_imagen(temp_path)
+        else:
+            await mensaje_espera.edit_text("❌ Formato de mensaje no soportado.")
+            return
 
-            scene.add(modelo);
+        resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
+        version = resultado.get("version")
+        datos = resultado.get("variables")
+        
+        vigas_list = datos.get("vigas", [])
+        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU `{v.get('sku')}` en altura Y={v.get('posicion', {}).get('y')}m" for v in vigas_list]) if vigas_list else "  • No se generaron vigas."
 
-        }, (xhr) => {
-            if (xhr.total > 0) {
-                const porcentaje = Math.round((xhr.loaded / xhr.total) * 100);
-                statusText.innerText = `⏳ Descargando: ${porcentaje}%`;
-            }
-        }, (error) => {
-            console.error("Error al procesar el GLB:", error);
-            statusText.innerText = "❌ Error en el archivo de Supabase.";
-            statusText.style.color = "#ef4444";
-        });
+        # OBTENCIÓN Y CODIFICACIÓN DE CREDENCIALES DE SUPABASE
+        sb_url = os.getenv("SUPABASE_URL", "")
+        sb_key = os.getenv("SUPABASE_KEY", "")
+        
+        # Escapamos los strings para que viajen de forma segura en la URL sin romper caracteres especiales
+        encoded_url = urllib.parse.quote_plus(sb_url)
+        encoded_key = urllib.parse.quote_plus(sb_key)
+        
+        # Enlace inteligente auto-conectable que viaja con el ID de sesión del usuario de Telegram
+        link_autenticado = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
 
-        // 3. LOOP ANIMACIÓN
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        }
-        animate();
+        respuesta = (
+            f"⚙️ **¡Diseño Listo! (Versión {version})**\n\n"
+            f"📦 **Modelo:** {datos.get('tipo_rack')}\n"
+            f"⚖️ **Carga:** {datos.get('peso_maximo_por_nivel_kg')} kg/nivel\n"
+            f"🛠️ **Distribución de Vigas:**\n{vigas_resumen}\n\n"
+            f"📝 **Notas:** {datos.get('comentarios_adicionales')}\n\n"
+            f"🌐 [VER MODELO 3D EN TU VISOR]({link_autenticado})"
+        )
+        await mensaje_espera.edit_text(respuesta, parse_mode="Markdown")
 
-        // Responsive
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
-</body>
-</html>
+    except Exception as e:
+        await mensaje_espera.edit_text(f"❌ Error al calcular coordenadas:\n`{str(e)}`", parse_mode="Markdown")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+def extraer_texto_pdf(file_path: str) -> str:
+    doc = fitz.open(file_path)
+    return "".join([pagina.get_text() for pagina in doc])
+
+def extraer_texto_imagen(file_path: str) -> str:
+    return " ".join(ocr_reader.readtext(file_path, detail=0))
+
+def transcribir_audio_groq(file_path: str) -> str:
+    with open(file_path, "rb") as file:
+        transcription = groq_client.audio.transcriptions.create(
+            file=(os.path.basename(file_path), file.read()),
+            model="whisper-large-v3",
+            language="es",
+            response_format="text"
+        )
+    return transcription
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tg_app = Application.builder().token(BOT_TOKEN).build()
+    tg_app.add_handler(CommandHandler("start", start_command))
+    filtro_total = filters.Document.ALL | filters.PHOTO | filters.TEXT | filters.VOICE
+    tg_app.add_handler(MessageHandler(filtro_total, manejar_mensaje_telegram))
+    await tg_app.initialize()
+    await tg_app.start()
+    await tg_app.updater.start_polling()
+    print("🤖 Servidor de Ingeniería CAD e Inteligencia de Ensambles en ejecución...")
+    yield
+    await tg_app.updater.stop()
+    await tg_app.stop()
+    await tg_app.shutdown()
+
+app = FastAPI(lifespan=lifespan)

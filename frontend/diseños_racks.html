@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Racks Industriales 3D - IA</title>
+    <!-- Tailwind CSS para un diseño elegante y moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para iconos de la interfaz -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Importaciones de Three.js y dependencias para renderizado 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    
+    <!-- Cliente de Supabase para suscripción Realtime -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        /* Estilos personalizados para asegurar que el canvas ocupe todo su contenedor */
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+        }
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
+
+    <!-- Barra de Navegación Superior -->
+    <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="bg-indigo-600 p-2.5 rounded-lg flex items-center justify-center">
+                <i class="fa-solid fa-cubes text-xl text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight">RackBuilder <span class="text-indigo-400">3D IA</span></h1>
+                <p class="text-xs text-slate-400">Plataforma de Ensamble de Racks Industriales</p>
+            </div>
+        </div>
+
+        <!-- Credenciales Rápidas para pruebas en local/despliegue -->
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+            <input type="text" id="db-url" placeholder="Supabase URL" class="bg-slate-950 border border-slate-700 px-3 py-1.5 rounded text-slate-300 focus:outline-none focus:border-indigo-500 w-48">
+            <input type="password" id="db-key" placeholder="Supabase Anon Key" class="bg-slate-950 border border-slate-700 px-3 py-1.5 rounded text-slate-300 focus:outline-none focus:border-indigo-500 w-48">
+            <button id="btn-conectar" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-1.5 rounded transition">
+                <i class="fa-solid fa-plug mr-1"></i> Conectar
+            </button>
+        </div>
+    </header>
+
+    <!-- Contenido Principal (Dashboard Dividido) -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6">
+        
+        <!-- Panel Lateral Izquierdo: Metadatos del Diseño e Historial (4 Columnas) -->
+        <section class="lg:col-span-4 flex flex-col space-y-6">
+            
+            <!-- Tarjeta de Estado de Conexión -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-md">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-3">Estado de Sincronización</h2>
+                <div class="flex items-center justify-between">
+                    <span class="flex items-center text-sm">
+                        <span id="status-indicador" class="h-2.5 w-2.5 rounded-full bg-red-500 mr-2.5 animate-pulse"></span>
+                        <span id="status-texto">Desconectado de Supabase</span>
+                    </span>
+                    <span id="badge-version" class="bg-slate-900 border border-slate-700 text-indigo-400 text-xs px-2.5 py-1 rounded font-mono hidden">
+                        v0
+                    </span>
+                </div>
+            </div>
+
+            <!-- Información del Rack Diseñado -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-md flex-1 flex flex-col">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">Especificaciones de Ensamble</h2>
+                
+                <div id="sin-datos" class="text-center py-12 text-slate-500 flex-1 flex flex-col justify-center items-center">
+                    <i class="fa-solid fa-hourglass-start text-4xl mb-3 text-slate-600"></i>
+                    <p class="text-sm">Esperando diseño desde Telegram...</p>
+                    <p class="text-xs text-slate-600 mt-1">El modelo 3D aparecerá aquí automáticamente al ser calculado por la IA.</p>
+                </div>
+
+                <div id="detalle-diseno" class="hidden space-y-5 flex-1">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                            <span class="text-[10px] uppercase text-slate-500 block">Tipo de Estructura</span>
+                            <span id="det-tipo" class="text-sm font-bold text-indigo-300">-</span>
+                        </div>
+                        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                            <span class="text-[10px] uppercase text-slate-500 block">Capacidad por Nivel</span>
+                            <span id="det-carga" class="text-sm font-bold text-indigo-300">-</span>
+                        </div>
+                        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                            <span class="text-[10px] uppercase text-slate-500 block">Niveles de Altura</span>
+                            <span id="det-niveles" class="text-sm font-bold text-indigo-300">-</span>
+                        </div>
+                        <div class="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+                            <span class="text-[10px] uppercase text-slate-500 block">Pasillo Maniobra</span>
+                            <span id="det-pasillo" class="text-sm font-bold text-indigo-300">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Comentarios de Ingeniería de la IA -->
+                    <div class="bg-slate-900/50 p-4 rounded-lg border border-slate-700/50">
+                        <span class="text-[10px] uppercase text-slate-500 block mb-1">Notas de Ingeniería CAD</span>
+                        <p id="det-comentarios" class="text-xs text-slate-300 italic leading-relaxed">-</p>
+                    </div>
+
+                    <!-- Desglose de Componentes Físicos -->
+                    <div class="space-y-2">
+                        <span class="text-[10px] uppercase text-slate-500 block">Componentes de Fabricación</span>
+                        <div id="lista-componentes" class="max-h-48 overflow-y-auto space-y-1.5 pr-2">
+                            <!-- Inyectado de forma dinámica -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel Derecho: Visor 3D Interactivo (8 Columnas) -->
+        <section class="lg:col-span-8 bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-md flex flex-col min-h-[500px] relative">
+            <div class="absolute top-6 left-6 z-10 flex items-center space-x-2">
+                <span class="bg-slate-900/80 backdrop-blur text-xs px-3 py-1.5 rounded-full border border-slate-700 flex items-center">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 mr-2"></span>
+                    Vista Interactiva 3D
+                </span>
+                <button id="btn-reset" class="bg-slate-900/80 hover:bg-slate-900 backdrop-blur text-xs px-3 py-1.5 rounded-full border border-slate-700 transition">
+                    <i class="fa-solid fa-arrows-spin mr-1"></i> Reset Cámara
+                </button>
+            </div>
+
+            <!-- Contenedor del Renderizado de Three.js -->
+            <div id="canvas-container" class="flex-1 rounded-lg overflow-hidden bg-slate-950">
+                <!-- Three.js Canvas se monta dinámicamente aquí -->
+            </div>
+            
+            <div class="mt-3 flex justify-between items-center text-xs text-slate-500 px-2">
+                <span><i class="fa-solid fa-circle-info mr-1"></i> Arrastra para orbitar • Scroll para zoom • Clic derecho para mover cámara</span>
+                <span id="render-stats">Piezas: 0</span>
+            </div>
+        </section>
+    </main>
+
+    <!-- NOTIFICACIONES TOAST EMULADAS -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-indigo-600 border border-indigo-400 text-white px-5 py-3 rounded-lg shadow-xl flex items-center space-x-3 transform translate-y-24 opacity-0 transition-all duration-300 z-50">
+        <i class="fa-solid fa-bell text-lg"></i>
+        <span id="toast-text" class="text-sm font-semibold"></span>
+    </div>
+
+    <!-- SCRIPT DE INTEGRACIÓN Y GRÁFICOS 3D -->
+    <script>
+        // --- 1. CONFIGURACIÓN DEL SISTEMA 3D (THREE.JS) ---
+        let scene, camera, renderer, controls;
+        let objectsGroup; // Grupo contenedor para limpiar la escena fácilmente en cada renderizado
+        const container = document.getElementById('canvas-container');
+
+        function init3D() {
+            // Inicializar Escena y Neblina
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090d16);
+            scene.fog = new THREE.FogExp2(0x090d16, 0.08);
+
+            // Inicializar Cámara
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(0, 3, 7);
+
+            // Inicializar Renderizador con Antialiasing para máxima calidad visual
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Controles de Órbita
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01; // Evita atravesar el suelo
+            controls.minDistance = 2;
+            controls.maxDistance = 30;
+
+            // Grupo de Modelos
+            objectsGroup = new THREE.Group();
+            scene.add(objectsGroup);
+
+            // Iluminación Profesional de Estudio
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight1.position.set(5, 10, 7);
+            dirLight1.castShadow = true;
+            dirLight1.shadow.mapSize.width = 2048;
+            dirLight1.shadow.mapSize.height = 2048;
+            scene.add(dirLight1);
+
+            const dirLight2 = new THREE.DirectionalLight(0x4338ca, 0.5); // Luz de acento índigo
+            dirLight2.position.set(-5, 5, -5);
+            scene.add(dirLight2);
+
+            // Suelo con Grid industrial de referencia
+            const gridHelper = new THREE.GridHelper(20, 20, 0x4338ca, 0x1e293b);
+            gridHelper.position.y = -0.01; // Ligeramente abajo para evitar z-fighting
+            scene.add(gridHelper);
+
+            // Suelo físico receptor de sombras
+            const floorGeo = new THREE.PlaneGeometry(50, 50);
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0x090d16, 
+                roughness: 0.8, 
+                metalness: 0.2 
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Lanzar animación loop
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        // Manejo adaptativo de ventanas
+        window.addEventListener('resize', () => {
+            if (!camera || !renderer) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if (camera && controls) {
+                camera.position.set(0, 3, 7);
+                controls.target.set(0, 0, 0);
+            }
+        });
+
+
+        // --- 2. RENDERIZACIÓN DINÁMICA DE PIEZAS (FALLBACK GEOMÉTRICO) ---
+        // Dado que tus .glb se guardan en el Storage Bucket de Supabase,
+        // creamos representaciones geométricas de alta calidad en caso de que un modelo falle o no exista.
+        
+        const loader = new THREE.GLTFLoader();
+
+        function cargarModeloOElemento(comp, tipo, urlBucket = null) {
+            const materialColor = tipo === 'marco' ? 0x1e293b : (tipo === 'viga' ? 0xeab308 : 0x4f46e5);
+            
+            // Si hay un bucket configurado, cargamos el modelo real .glb
+            if (urlBucket && comp.sku) {
+                const urlModelo = `${urlBucket}/${comp.sku}.glb`;
+                loader.load(urlModelo, 
+                    (gltf) => {
+                        const modelo = gltf.scene;
+                        modelo.position.set(comp.posicion.x, comp.posicion.y, comp.posicion.z);
+                        modelo.castShadow = true;
+                        modelo.receiveShadow = true;
+                        
+                        // Aplicar rotación si existe en el JSON
+                        if (comp.rotacion) {
+                            modelo.rotation.set(comp.rotacion.x || 0, comp.rotacion.y || 0, comp.rotacion.z || 0);
+                        }
+                        
+                        objectsGroup.add(modelo);
+                        actualizarContadorPiezas();
+                    },
+                    undefined,
+                    (error) => {
+                        console.warn(`No se pudo cargar el GLB para ${comp.sku}. Renderizando fallback geométrico.`, error);
+                        renderizarFallback(comp, tipo, materialColor);
+                    }
+                );
+            } else {
+                renderizarFallback(comp, tipo, materialColor);
+            }
+        }
+
+        function renderizarFallback(comp, tipo, colorHex) {
+            let geometry, material, mesh;
+
+            // Diseños geométricos realistas basados en ingeniería estándar
+            if (tipo === 'marco') {
+                // Genera una estructura de marco de andamio con dos postes y crucetas
+                const group = new THREE.Group();
+                group.position.set(comp.posicion.x, comp.posicion.y, comp.posicion.z);
+
+                // Postes verticales
+                const posteGeo = new THREE.CylinderGeometry(0.04, 0.04, 4.0, 8);
+                const posteMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5, metalness: 0.6 });
+                
+                const poste1 = new THREE.Mesh(posteGeo, posteMat);
+                poste1.position.set(0, 2.0, -0.5);
+                poste1.castShadow = true;
+                group.add(poste1);
+
+                const poste2 = new THREE.Mesh(posteGeo, posteMat);
+                poste2.position.set(0, 2.0, 0.5);
+                poste2.castShadow = true;
+                group.add(poste2);
+
+                // Travesaños horizontales
+                const traveGeo = new THREE.CylinderGeometry(0.02, 0.02, 1.0, 8);
+                const traveMat = new THREE.MeshStandardMaterial({ color: 0x475569 });
+                
+                for(let h = 0.5; h <= 3.8; h += 0.8) {
+                    const travesano = new THREE.Mesh(traveGeo, traveMat);
+                    travesano.rotation.x = Math.PI / 2;
+                    travesano.position.set(0, h, 0);
+                    group.add(travesano);
+                }
+
+                objectsGroup.add(group);
+
+            } else if (tipo === 'viga') {
+                // Viga horizontal de carga (Caja sólida y alargada)
+                geometry = new THREE.BoxGeometry(2.4, 0.1, 0.06);
+                material = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3, metalness: 0.7 });
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(comp.posicion.x, comp.posicion.y, comp.posicion.z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                objectsGroup.add(mesh);
+
+            } else if (tipo === 'mensula') {
+                // Ménsula de acople
+                geometry = new THREE.BoxGeometry(0.12, 0.15, 0.08);
+                material = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4, metalness: 0.8 });
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(comp.posicion.x, comp.posicion.y, comp.posicion.z);
+                mesh.castShadow = true;
+                objectsGroup.add(mesh);
+            }
+
+            actualizarContadorPiezas();
+        }
+
+        function actualizarContadorPiezas() {
+            let total = 0;
+            objectsGroup.traverse((child) => {
+                if (child.isMesh) total++;
+            });
+            document.getElementById('render-stats').innerText = `Componentes renderizados: ${total}`;
+        }
+
+
+        // --- 3. CONEXIÓN EN TIEMPO REAL CON SUPABASE ---
+        let supabaseClient = null;
+
+        // Intentar autoconexión con variables cargadas en LocalStorage
+        window.onload = () => {
+            init3D();
+            
+            const savedUrl = localStorage.getItem('sb_url');
+            const savedKey = localStorage.getItem('sb_key');
+            
+            if (savedUrl && savedKey) {
+                document.getElementById('db-url').value = savedUrl;
+                document.getElementById('db-key').value = savedKey;
+                conectarSupabase(savedUrl, savedKey);
+            }
+        };
+
+        document.getElementById('btn-conectar').addEventListener('click', () => {
+            const url = document.getElementById('db-url').value.trim();
+            const key = document.getElementById('db-key').value.trim();
+            
+            if (!url || !key) {
+                mostrarToast("Por favor introduce la URL y Anon Key válidas.");
+                return;
+            }
+            
+            conectarSupabase(url, key);
+        });
+
+        function conectarSupabase(url, key) {
+            try {
+                // Guardar para evitar reintroducir en cada recarga
+                localStorage.setItem('sb_url', url);
+                localStorage.setItem('sb_key', key);
+
+                supabaseClient = supabase.createClient(url, key);
+                
+                // Actualizar interfaz a Conectado
+                const ind = document.getElementById('status-indicador');
+                ind.classList.remove('bg-red-500');
+                ind.classList.add('bg-emerald-500');
+                document.getElementById('status-texto').innerText = "Conectado a Supabase Realtime";
+                
+                mostrarToast("Conexión establecida con éxito");
+
+                // 1. Cargar el último diseño inmediatamente
+                cargarUltimoDisenoDB();
+
+                // 2. Suscribirse a inserciones en tiempo real sobre la tabla "disenos_racks"
+                // IMPORTANTE: Asegura que la replicación Realtime esté activa en tu consola
+                supabaseClient
+                    .channel('cambios-disenos')
+                    .on('postgres_changes', { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'disenos_racks' 
+                    }, payload => {
+                        console.log('Nuevo diseño detectado:', payload.new);
+                        procesarNuevoDiseno(payload.new);
+                        mostrarToast(`¡Nuevo diseño sincronizado! Versión v${payload.new.version_actual}`);
+                    })
+                    .subscribe();
+
+            } catch (err) {
+                mostrarToast(`Error al inicializar Supabase: ${err.message}`);
+            }
+        }
+
+        async function cargarUltimoDisenoDB() {
+            if (!supabaseClient) return;
+            
+            const { data, error } = await supabaseClient
+                .from('disenos_racks')
+                .select('*')
+                .order('version_actual', { ascending: false })
+                .limit(1);
+
+            if (error) {
+                console.error("Error al obtener último diseño:", error);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                procesarNuevoDiseno(data[0]);
+            }
+        }
+
+        function procesarNuevoDiseno(registro) {
+            const variables = registro.matriz_ensamble_3d;
+            if (!variables) return;
+
+            // Ocultar sección vacía y mostrar metadatos
+            document.getElementById('sin-datos').classList.add('hidden');
+            const det = document.getElementById('detalle-diseno');
+            det.classList.remove('hidden');
+
+            const badge = document.getElementById('badge-version');
+            badge.innerText = `v${registro.version_actual}`;
+            badge.classList.remove('hidden');
+
+            // Renderizar textos
+            document.getElementById('det-tipo').innerText = variables.tipo_rack || "N/D";
+            document.getElementById('det-carga').innerText = `${variables.peso_maximo_por_nivel_kg || 0} kg`;
+            document.getElementById('det-niveles').innerText = variables.numero_niveles || 0;
+            document.getElementById('det-pasillo').innerText = variables.ancho_pasillo_maniobra_metros ? `${variables.ancho_pasillo_maniobra_metros} m` : "N/E";
+            document.getElementById('det-comentarios').innerText = variables.comentarios_adicionales || "Sin comentarios técnicos.";
+
+            // Limpiar la escena de Three.js antes de pintar el nuevo diseño
+            while(objectsGroup.children.length > 0){ 
+                objectsGroup.remove(objectsGroup.children[0]); 
+            }
+
+            // Url del storage público de Supabase para descargar los .glb
+            // Cambia 'modelos-3d' por el nombre de tu bucket de Supabase
+            const urlBucket = `${localStorage.getItem('sb_url')}/storage/v1/object/public/modelos-3d`;
+
+            const matriz = variables.matriz_ensamble_3d;
+            if (!matriz) return;
+
+            const listaComponentes = document.getElementById('lista-componentes');
+            listaComponentes.innerHTML = ''; // Limpiar lista visual
+
+            // Recorrer y renderizar marcos
+            if (matriz.marcos) {
+                matriz.marcos.forEach(m => {
+                    cargarModeloOElemento(m, 'marco', urlBucket);
+                    agregarAListaVisual(m.sku, 'Marco Lateral');
+                });
+            }
+
+            // Recorrer y renderizar vigas
+            if (matriz.vigas) {
+                matriz.vigas.forEach(v => {
+                    cargarModeloOElemento(v, 'viga', urlBucket);
+                    agregarAListaVisual(v.sku, `Viga de Carga (Nivel ${v.nivel})`);
+                });
+            }
+
+            // Recorrer y renderizar ménsulas
+            if (matriz.mensulas) {
+                matriz.mensulas.forEach(me => {
+                    cargarModeloOElemento(me, 'mensula', urlBucket);
+                    agregarAListaVisual(me.sku, `Ménsula (${me.lado === 'izq' ? 'Izquierda' : 'Derecha'} - Nivel ${me.nivel})`);
+                });
+            }
+        }
+
+        function agregarAListaVisual(sku, descripcion) {
+            const lista = document.getElementById('lista-componentes');
+            const item = document.createElement('div');
+            item.className = "flex justify-between items-center bg-slate-900 px-3 py-1.5 rounded border border-slate-700/50 text-xs";
+            item.innerHTML = `
+                <span class="font-mono text-indigo-300">${sku}</span>
+                <span class="text-slate-400 text-[10px]">${descripcion}</span>
+            `;
+            lista.appendChild(item);
+        }
+
+        // --- SISTEMA AUXILIAR DE MENSAJES TOAST ---
+        function mostrarToast(mensaje) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            toastText.innerText = mensaje;
+            
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-24', 'opacity-0');
+            }, 3500);
+        }
+    </script>
+</body>
+</html>

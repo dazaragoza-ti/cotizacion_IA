@@ -7,32 +7,237 @@ from fastapi import FastAPI, UploadFile, File, Form
 from supabase import create_client, Client
 from pydantic import BaseModel
 from groq import Groq
+from anthropic import Anthropic  
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 # Importaciones para el Bot de Telegram
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# 1. Asegurar la carga de variables antes de cualquier inicialización
+# Cargar variables de entorno
 load_dotenv()
 
-# --- CONFIGURACIÓN E INICIALIZACIONES ---
+# Inicializaciones de clientes
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 ocr_reader = easyocr.Reader(['es'])
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# URL de tu visualizador en GitHub Pages
 URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/"
 
-class EstructuraAlmacen(BaseModel):
-    tipo_rack: str
-    peso_maximo_por_nivel_kg: float
-    numero_niveles: int
-    ancho_pasillo_maniobra_metros: float | None = None
-    comentarios_adicionales: str
+def consultar_catalogo_piezas() -> list:
+    """
+    Trae el inventario de componentes reales disponibles de Supabase.
+    Si la tabla está vacía, no existe, o la consulta falla, provee un catálogo técnico
+    con valores de ingeniería por defecto para evitar que Claude se quede sin contexto de diseño.
+    """
+    fallback_piezas = [
+        {"sku": "VIGA-LIG-2400", "nombre": "Viga Ligera 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 800},
+        {"sku": "VIGA-PES-2400", "nombre": "Viga Pesada 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 2200},
+        {"sku": "MARCO-ALT-4000", "nombre": "Marco Estructural 4m", "tipo": "marco", "altura_metros": 4.0, "profundidad_metros": 1.0},
+        {"sku": "MENSULA-ESTANDAR", "nombre": "Ménsula de Ensamble", "tipo": "mensula"}
+    ]
+    try:
+        resultado = supabase.table("catalogo_piezas").select("*").execute()
+        if resultado.data and len(resultado.data) > 0:
+            return resultado.data
+        return fallback_piezas
+    except Exception:
+        return fallback_piezas
 
-# --- FUNCIONES CORE DE PROCESAMIENTO ---
+def obtener_ultimo_diseno(session_id: str) -> dict | None:
+    """
+    Recupera la versión más reciente del diseño actual para esta sesión de chat.
+    Si es la primera interacción, retorna None de forma segura.
+    """
+    try:
+        resultado = supabase.table("disenos_racks").select("*").eq("session_id", session_id).order("version_actual", desc=True).limit(1).execute()
+        return resultado.data[0] if resultado.data else None
+    except Exception:
+        return None
+
+def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
+    """
+    Lógica de Agente de Ensamble:
+    1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
+    2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
+       recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
+    """
+    catalogo_disponible = consultar_catalogo_piezas()
+    diseno_previo = obtener_ultimo_diseno(session_id)
+
+    herramienta_guardar_diseno = {
+        "name": "guardar_diseno_3d",
+        "description": "Registra la matriz de ensamble 3D.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo_rack": {"type": "string"},
+                "peso_maximo_por_nivel_kg": {"type": "number"},
+                "numero_niveles": {"type": "integer"},
+                "matriz_ensamble_3d": {
+                    "type": "object",
+                    "properties": {
+                        "marcos": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}},
+                        "vigas": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "nivel": {"type": "integer"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}},
+                        "mensulas": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}, "nivel": {"type": "integer"}, "lado": {"type": "string"}, "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}}}}
+                    },
+                    "required": ["marcos", "vigas", "mensulas"]
+                },
+                "comentarios_adicionales": {"type": "string"}
+            },
+            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "matriz_ensamble_3d", "comentarios_adicionales"]
+        }
+    }
+
+    system_prompt = (
+        "Eres un Ingeniero CAD Senior especializado en modelado espacial de racks industriales en 3D.\n"
+        "Tu única tarea es calcular la colocación y rotación de componentes físicos en metros (ejes X, Y, Z).\n\n"
+        "REGLAS GEOMÉTRICAS CLAVE:\n"
+        "- Eje Y representa la altura. Las vigas de cada nivel deben espaciarse uniformemente (ej: nivel 1 en Y=0.8, nivel 2 en Y=1.8, etc.).\n"
+        "- Eje X representa el ancho. El marco izquierdo se sitúa en X = -1.2, y el marco derecho en X = 1.2.\n"
+        "- Las vigas horizontales deben centrarse en X = 0.\n"
+        "- Las ménsulas de acople deben situarse exactamente sobre los marcos (ej: en X = -1.2 para el lado izquierdo y X = 1.2 para el derecho) a la misma altura Y de la viga del nivel.\n\n"
+        f"INVENTARIO DISPONIBLE EN SUPABASE:\n{json.dumps(catalogo_disponible, indent=2)}\n"
+    )
+
+    if diseno_previo:
+        system_prompt += (
+            "\nESTADO: Modo Auto-corrección.\n"
+            "El usuario está enviando una solicitud para modificar un diseño anterior que ya existe en el sistema.\n"
+            "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario (ej. 'sube el segundo piso', 'hazlo más alto') "
+            "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
+            "Mantén intactos todos los demás componentes y SKUs. Si una viga cambia de altura Y, sus ménsulas asociadas en ese nivel deben actualizarse idénticamente."
+        )
+        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
+        proxima_version = diseno_previo["version_actual"] + 1
+        solicitud_inicial = diseno_previo["solicitud_original"]
+        historial = diseno_previo.get("historial_comentarios", []) or []
+        historial.append(comentario_usuario)
+    else:
+        system_prompt += (
+            "\nESTADO: Modo Diseño Nuevo.\n"
+            "Calcula la estructura de ensamble óptima desde cero. Selecciona los SKUs ideales que soporten la capacidad de carga indicada, "
+            "establece los niveles requeridos y define la distribución inicial de las coordenadas espaciales X, Y, Z para que el rack "
+            "quede perfectamente alineado y ensamblado."
+        )
+        prompt_usuario = f"Requerimiento: {comentario_usuario}"
+        proxima_version = 1
+        solicitud_inicial = comentario_usuario
+        historial = []
+
+    # Uso del modelo correcto y alias oficial en producción para evitar 404
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=3000,
+        temperature=0,
+        system=system_prompt,
+        tools=[herramienta_guardar_diseno],
+        tool_choice={"type": "tool", "name": "guardar_diseno_3d"},
+        messages=[{"role": "user", "content": prompt_usuario}]
+    )
+
+    tool_calls = [c for c in response.content if c.type == "tool_use"]
+    datos_ensamble = tool_calls[0].input
+
+    supabase.table("disenos_racks").insert({
+        "vendedor_id": vendedor_id,
+        "session_id": session_id,
+        "solicitud_original": solicitud_inicial,
+        "version_actual": proxima_version,
+        "matriz_ensamble_3d": datos_ensamble,
+        "historial_comentarios": historial
+    }).execute()
+
+    return {"version": proxima_version, "variables": datos_ensamble}
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📐 **Asistente de Racks 3D**\n\n"
+        "Dime qué necesitas (ej: un rack de 3 niveles para 1200kg) y armaré el diseño.\n"
+        "Puedes interactuar conmigo enviando:\n"
+        "1️⃣ Mensajes de texto directos o correcciones.\n"
+        "2️⃣ Notas de voz explicando tu requerimiento.\n"
+        "3️⃣ Fotos de requisiciones impresas o bosquejos.\n"
+        "4️⃣ Archivos PDF con fichas técnicas o planos."
+    )
+
+async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    session_id = str(update.effective_chat.id)
+    vendedor_anon = f"Telegram_{update.effective_user.first_name}"
+    mensaje_espera = await update.message.reply_text("📐 Calculando geometría 3D...")
+    
+    foto = update.message.photo
+    documento = update.message.document
+    texto = update.message.text
+    voz = update.message.voice
+    
+    temp_path = ""
+    texto_limpio = ""
+
+    try:
+        # 1. Procesamiento según el canal de entrada
+        if texto:
+            texto_limpio = texto
+        elif voz:
+            file = await context.bot.get_file(voz.file_id)
+            temp_path = f"tg_temp_{voz.file_id}.ogg"
+            await file.download_to_drive(temp_path)
+            texto_limpio = transcribir_audio_groq(temp_path)
+        elif documento:
+            file = await context.bot.get_file(documento.file_id)
+            extension = documento.file_name.split(".")[-1].lower()
+            temp_path = f"tg_temp_{documento.file_name}"
+            await file.download_to_drive(temp_path)
+            texto_limpio = extraer_texto_pdf(temp_path) if extension == "pdf" else extraer_texto_imagen(temp_path)
+        elif foto:
+            file = await context.bot.get_file(foto[-1].file_id)
+            temp_path = f"tg_temp_{foto[-1].file_id}.jpg"
+            await file.download_to_drive(temp_path)
+            texto_limpio = extraer_texto_imagen(temp_path)
+        else:
+            await mensaje_espera.edit_text("❌ Formato de mensaje no soportado.")
+            return
+
+        # 2. Enviar los datos limpios extraídos al agente de Claude para el cálculo 3D
+        resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
+        version = resultado.get("version")
+        datos = resultado.get("variables")
+        matriz = datos.get("matriz_ensamble_3d", {})
+        
+        # Formatear el resumen de la pieza diseñada
+        vigas_list = matriz.get("vigas", [])
+        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU `{v.get('sku')}` en altura Y={v.get('posicion', {}).get('y')}m" for v in vigas_list]) if vigas_list else "  • No se generaron vigas."
+        
+        # Mostrar desglose del JSON de ensamble en Telegram de manera segura
+        comp_string = json.dumps(matriz, indent=2, ensure_ascii=False)
+        comp_preview = comp_string[:300] + "..." if len(comp_string) > 300 else comp_string
+
+        transcripcion = f"🗣️ *Escuché:* \"_{texto_limpio}_\"\n\n" if voz else ""
+
+        respuesta = (
+            f"⚙️ **¡Diseño Listo! (Versión {version})**\n\n"
+            f"{transcripcion}"
+            f"📦 **Modelo:** {datos.get('tipo_rack')}\n"
+            f"⚖️ **Carga:** {datos.get('peso_maximo_por_nivel_kg')} kg/nivel\n"
+            f"🔢 **Niveles de Altura:** {datos.get('numero_niveles')}\n\n"
+            f"🛠️ **Distribución de Vigas:**\n{vigas_resumen}\n\n"
+            f"🛠️ **Estructura del Ensamble Interno:**\n"
+            f"```json\n{comp_preview}\n```\n"
+            f"📝 **Notas:** {datos.get('comentarios_adicionales')}\n\n"
+            f"🌐 [VER MODELO 3D EN TU VISOR]({URL_FRONTEND})"
+        )
+        await mensaje_espera.edit_text(respuesta, parse_mode="Markdown")
+
+    except Exception as e:
+        await mensaje_espera.edit_text(f"❌ Error al calcular coordenadas:\n`{str(e)}`", parse_mode="Markdown")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+# --- UTILERÍAS EXTRA ---
 def extraer_texto_pdf(file_path: str) -> str:
     doc = fitz.open(file_path)
     return "".join([pagina.get_text() for pagina in doc])
@@ -40,146 +245,31 @@ def extraer_texto_pdf(file_path: str) -> str:
 def extraer_texto_imagen(file_path: str) -> str:
     return " ".join(ocr_reader.readtext(file_path, detail=0))
 
-def procesar_e_ingestar_logica(texto_limpio: str, tipo_archivo: str, vendedor_id: str) -> dict:
-    """Función unificada que llama a Groq e inserta en Supabase"""
-    if not texto_limpio.strip():
-        raise ValueError("No se pudo extraer texto del archivo.")
-
-    # Llamada a Groq
-    chat_completion = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": f"Eres un ingeniero experto en racks industriales. Extrae los datos solicitados en formato JSON cumpliendo estrictamente con este esquema: {EstructuraAlmacen.model_json_schema()}"
-            },
-            {"role": "user", "content": f"Texto extraído: {texto_limpio}"}
-        ],
-        response_format={"type": "json_object"},
-        temperature=0
-    )
-    
-    variables_finales = json.loads(chat_completion.choices[0].message.content)
-    
-    # Guardar en Supabase
-    supabase.table("cotizaciones").insert({
-        "vendedor_id": vendedor_id,
-        "tipo_archivo": tipo_archivo,
-        "texto_extraido": texto_limpio,
-        "variables_json": variables_finales
-    }).execute()
-    
-    return variables_finales
-
-
-# --- CONTROLADORES DEL BOT DE TELEGRAM ---
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "¡Hola! Soy el asistente de Racks Industriales 🤖📦.\n\n"
-        "Envíame una foto de un plano o un archivo PDF técnico y extraeré "
-        "automáticamente las variables para renderizar el modelo 3D en tiempo real."
-    )
-
-async def manejar_documento_telegram(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mensaje_espera = await update.message.reply_text("📥 Recibiendo archivo... Procesando con Inteligencia Artificial, por favor espera.")
-    
-    foto = update.message.photo
-    documento = update.message.document
-    
-    temp_path = ""
-    tipo_archivo = ""
-    
-    try:
-        if documento:
-            file = await context.bot.get_file(documento.file_id)
-            extension = documento.file_name.split(".")[-1].lower()
-            temp_path = f"tg_temp_{documento.file_name}"
-            tipo_archivo = "pdf" if extension == "pdf" else "imagen"
-        elif foto:
-            file = await context.bot.get_file(foto[-1].file_id)
-            temp_path = f"tg_temp_{foto[-1].file_id}.jpg"
-            tipo_archivo = "imagen"
-        else:
-            await mensaje_espera.edit_text("❌ Formato no soportado. Envía un PDF o una Imagen.")
-            return
-
-        # Descargar archivo localmente
-        await file.download_to_drive(temp_path)
-        
-        # Extraer Texto según el formato
-        if tipo_archivo == "pdf":
-            texto_limpio = extraer_texto_pdf(temp_path)
-        else:
-            texto_limpio = extraer_texto_imagen(temp_path)
-            
-        # Ejecutar lógica asignando nombre dinámico del usuario de Telegram
-        vendedor_anon = f"Telegram_{update.effective_user.first_name}"
-        res_json = procesar_e_ingestar_logica(texto_limpio, tipo_archivo, vendedor_anon)
-        
-        # Respuesta estructurada con link directo a GitHub Pages en Markdown
-        respuesta_bonita = (
-            "✅ **¡Archivo Procesado y Guardado!**\n\n"
-            f"📦 **Tipo de Rack:** {res_json.get('tipo_rack')}\n"
-            f"🔢 **Niveles:** {res_json.get('numero_niveles')}\n"
-            f"⚖️ **Peso Máx p/ Nivel:** {res_json.get('peso_maximo_por_nivel_kg')} kg\n"
-            f"📏 **Pasillo Maniobra:** {res_json.get('ancho_pasillo_maniobra_metros') or 'No especificado'} m\n\n"
-            f"📝 **Comentarios:** {res_json.get('comentarios_adicionales')}\n\n"
-            f"🌐 [¡VER MODELO 3D EN VIVO AQUÍ!]({URL_FRONTEND})"
+def transcribir_audio_groq(file_path: str) -> str:
+    with open(file_path, "rb") as file:
+        transcription = groq_client.audio.transcriptions.create(
+            file=(os.path.basename(file_path), file.read()),
+            model="whisper-large-v3",
+            language="es",
+            response_format="text"
         )
-        await mensaje_espera.edit_text(respuesta_bonita, parse_mode="Markdown")
-
-    except Exception as e:
-        await mensaje_espera.edit_text(f"❌ Ocurrió un error al procesar el archivo:\n`{str(e)}`", parse_mode="Markdown")
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
-# --- CICLO DE VIDA DE FASTAPI (Asíncrono para el Bot) ---
-from contextlib import asynccontextmanager
+    return transcription
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Código ejecutado al encender el servidor
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start_command))
-    tg_app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, manejar_documento_telegram))
+    
+    filtro_total = filters.Document.ALL | filters.PHOTO | filters.TEXT | filters.VOICE
+    tg_app.add_handler(MessageHandler(filtro_total, manejar_mensaje_telegram))
     
     await tg_app.initialize()
     await tg_app.start()
     await tg_app.updater.start_polling()
-    
-    print("🤖 Bot de Telegram escuchando con éxito...")
+    print("🤖 Servidor de Ingeniería CAD e Inteligencia de Ensambles en ejecución...")
     yield
-    # Código ejecutado al apagar el servidor
     await tg_app.updater.stop()
     await tg_app.stop()
     await tg_app.shutdown()
 
-# Inicialización de FastAPI vinculando el ciclo de vida anterior
 app = FastAPI(lifespan=lifespan)
-
-
-# --- ENDPOINT HTTP (Para compatibilidad web e interfaz de Swagger Docs) ---
-@app.post("/ingestar")
-async def ingestar_archivo(vendedor_id: str = Form(...), file: UploadFile = File(...)):
-    temp_path = f"temp_{file.filename}"
-    try:
-        with open(temp_path, "wb") as f:
-            f.write(await file.read())
-        
-        extension = file.filename.split(".")[-1].lower()
-        texto_limpio = extraer_texto_pdf(temp_path) if extension == "pdf" else extraer_texto_imagen(temp_path)
-        tipo = "pdf" if extension == "pdf" else "imagen"
-        
-        variables_finales = procesar_e_ingestar_logica(texto_limpio, tipo, vendedor_id)
-        
-        return {
-            "status": "Procesado con éxito por Llama 3.3 en Groq",
-            "datos_guardados_en_supabase": variables_finales
-        }
-    except Exception as e:
-        return {"status": "Error Interno", "detalles_del_error": str(e)}
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
