@@ -1,0 +1,11 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+PyMuPDF==1.23.8
+easyocr==1.7.0
+supabase==2.3.5
+pydantic==2.5.0
+groq==0.4.2
+python-dotenv==1.0.0
+python-telegram-bot==20.3
+aiofiles==23.2.1
+httpx==0.25.2
