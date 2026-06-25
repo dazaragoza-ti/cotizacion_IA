@@ -3,18 +3,18 @@ import fitz  # PyMuPDF
 import easyocr
 import json
 import asyncio
-import urllib.parse  # Para codificar de forma segura las credenciales en la URL
+import urllib.parse
 from fastapi import FastAPI, UploadFile, File, Form
 from supabase import create_client, Client
 from pydantic import BaseModel
 from groq import Groq
-from anthropic import Anthropic  
+from anthropic import Anthropic
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
 # Importaciones para el Bot de Telegram
 from telegram import Update
-from telegram.request import HTTPXRequest  # Para controlar timeouts de conexión
+from telegram.request import HTTPXRequest
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Cargar variables de entorno
@@ -67,11 +67,16 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
     2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
        recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
+
+    FIX: El tool ahora guarda los componentes (marcos, vigas, mensulas) dentro de
+    "matriz_ensamble_3d" como objeto anidado, en lugar de en la raíz. Esto unifica
+    el schema con el que espera el frontend en renderRack().
     """
     catalogo_disponible = consultar_catalogo_piezas()
     diseno_previo = obtener_ultimo_diseno(session_id)
 
-    # Estructura limpia de componentes en la raíz del ensamble
+    # FIX #1: Schema del tool corregido — componentes anidados dentro de "matriz_ensamble_3d"
+    # para que coincidan exactamente con lo que el frontend espera en renderRack().
     herramienta_guardar_diseno = {
         "name": "guardar_diseno_3d",
         "description": "Registra la matriz y geometría de ensamble 3D del rack.",
@@ -81,42 +86,76 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
                 "tipo_rack": {"type": "string"},
                 "peso_maximo_por_nivel_kg": {"type": "number"},
                 "numero_niveles": {"type": "integer"},
-                "marcos": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                "comentarios_adicionales": {"type": "string"},
+                # Los componentes 3D van ANIDADOS en este objeto
+                "matriz_ensamble_3d": {
+                    "type": "object",
+                    "properties": {
+                        "marcos": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "sku": {"type": "string"},
+                                    "posicion": {
+                                        "type": "object",
+                                        "properties": {
+                                            "x": {"type": "number"},
+                                            "y": {"type": "number"},
+                                            "z": {"type": "number"}
+                                        },
+                                        "required": ["x", "y", "z"]
+                                    }
+                                },
+                                "required": ["sku", "posicion"]
+                            }
+                        },
+                        "vigas": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "sku": {"type": "string"},
+                                    "nivel": {"type": "integer"},
+                                    "posicion": {
+                                        "type": "object",
+                                        "properties": {
+                                            "x": {"type": "number"},
+                                            "y": {"type": "number"},
+                                            "z": {"type": "number"}
+                                        },
+                                        "required": ["x", "y", "z"]
+                                    }
+                                },
+                                "required": ["sku", "nivel", "posicion"]
+                            }
+                        },
+                        "mensulas": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "sku": {"type": "string"},
+                                    "nivel": {"type": "integer"},
+                                    "lado": {"type": "string", "enum": ["izq", "der"]},
+                                    "posicion": {
+                                        "type": "object",
+                                        "properties": {
+                                            "x": {"type": "number"},
+                                            "y": {"type": "number"},
+                                            "z": {"type": "number"}
+                                        },
+                                        "required": ["x", "y", "z"]
+                                    }
+                                },
+                                "required": ["sku", "nivel", "lado", "posicion"]
+                            }
                         }
-                    }
-                },
-                "vigas": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "nivel": {"type": "integer"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
-                        }
-                    }
-                },
-                "mensulas": {
-                    "type": "array", 
-                    "items": {
-                        "type": "object", 
-                        "properties": {
-                            "sku": {"type": "string"}, 
-                            "nivel": {"type": "integer"}, 
-                            "lado": {"type": "string"}, 
-                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
-                        }
-                    }
-                },
-                "comentarios_adicionales": {"type": "string"}
+                    },
+                    "required": ["marcos", "vigas", "mensulas"]
+                }
             },
-            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "marcos", "vigas", "mensulas", "comentarios_adicionales"]
+            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "matriz_ensamble_3d", "comentarios_adicionales"]
         }
     }
 
@@ -139,7 +178,9 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
             "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
             "Mantén intactos todos los demás componentes y SKUs."
         )
-        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
+        # FIX #2: Leer correctamente la matriz del diseño previo (puede estar anidada o en raíz)
+        matriz_previa = diseno_previo.get("matriz_ensamble_3d", {})
+        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(matriz_previa)}\nCAMBIO: {comentario_usuario}"
         proxima_version = diseno_previo["version_actual"] + 1
         solicitud_inicial = diseno_previo["solicitud_original"]
         historial = diseno_previo.get("historial_comentarios", []) or []
@@ -167,15 +208,17 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     tool_calls = [c for c in response.content if c.type == "tool_use"]
     if not tool_calls:
         raise ValueError("Claude no pudo mapear de forma estructurada las coordenadas.")
-        
+
     datos_ensamble = tool_calls[0].input
 
+    # FIX #3: Guardar el objeto completo que devuelve Claude (ya incluye matriz_ensamble_3d anidada)
+    # en la columna "matriz_ensamble_3d" de Supabase para que el frontend lo lea correctamente.
     supabase.table("disenos_racks").insert({
         "vendedor_id": vendedor_id,
         "session_id": session_id,
         "solicitud_original": solicitud_inicial,
         "version_actual": proxima_version,
-        "matriz_ensamble_3d": datos_ensamble,
+        "matriz_ensamble_3d": datos_ensamble,   # ← objeto completo con matriz anidada
         "historial_comentarios": historial
     }).execute()
 
@@ -197,12 +240,12 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
     session_id = str(update.effective_chat.id)
     vendedor_anon = f"Telegram_{update.effective_user.first_name}"
     mensaje_espera = await update.message.reply_text("📐 Calculando geometría 3D...")
-    
+
     foto = update.message.photo
     documento = update.message.document
     texto = update.message.text
     voz = update.message.voice
-    
+
     temp_path = ""
     texto_limpio = ""
 
@@ -232,16 +275,21 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
         resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
         version = resultado.get("version")
         datos = resultado.get("variables")
-        
-        vigas_list = datos.get("vigas", [])
-        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU <code>{v.get('sku')}</code> en Y={v.get('posicion', {}).get('y')}m" for v in vigas_list])
+
+        # FIX #4: Leer vigas del lugar correcto (dentro de matriz_ensamble_3d)
+        matriz = datos.get("matriz_ensamble_3d", {})
+        vigas_list = matriz.get("vigas", [])
+        vigas_resumen = "\n".join([
+            f"  • Nivel {v.get('nivel')}: SKU <code>{v.get('sku')}</code> en Y={v.get('posicion', {}).get('y')}m"
+            for v in vigas_list
+        ])
 
         sb_url = os.getenv("SUPABASE_URL", "")
         sb_key = os.getenv("SUPABASE_KEY", "")
-        
+
         encoded_url = urllib.parse.quote_plus(sb_url)
         encoded_key = urllib.parse.quote_plus(sb_key)
-        
+
         link_autenticado = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
 
         transcripcion_html = f"🗣️ <b>Escuché:</b> <i>\"{texto_limpio}\"</i>\n\n" if voz else ""
@@ -282,30 +330,27 @@ def transcribir_audio_groq(file_path: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Configurar timeouts explícitos para mitigar retrasos de red con la API de Telegram
     t_request = HTTPXRequest(connect_timeout=15.0, read_timeout=15.0)
-    
+
     tg_app = Application.builder().token(BOT_TOKEN).request(t_request).build()
     tg_app.add_handler(CommandHandler("start", start_command))
-    
+
     filtro_total = filters.Document.ALL | filters.PHOTO | filters.TEXT | filters.VOICE
     tg_app.add_handler(MessageHandler(filtro_total, manejar_mensaje_telegram))
-    
+
     await tg_app.initialize()
     await tg_app.start()
-    
-    # 2. Iniciar polling con un intervalo de timeout controlado y descartando actualizaciones pendientes de sesiones muertas
+
     await tg_app.updater.start_polling(timeout=10, drop_pending_updates=True)
     print("🤖 Servidor de Ingeniería CAD e Inteligencia de Ensambles en ejecución...")
     yield
-    
-    # 3. Apagado resiliente: intercepta problemas de timeout/red en tiempo de apagado para evitar tracebacks molestos en recarga
+
     try:
         if tg_app.updater and tg_app.updater.running:
             await tg_app.updater.stop()
     except Exception as e:
-        print(f"⚠️ Nota: Excepción capturada durante el apagado del updater (reintento omitido de forma segura): {e}")
-        
+        print(f"⚠️ Nota: Excepción capturada durante el apagado del updater: {e}")
+
     try:
         await tg_app.stop()
         await tg_app.shutdown()
