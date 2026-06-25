@@ -3,22 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador 3D Selectivo Industrial</title>
+    <title>Visualizador 3D - Control de Piezas Reales</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gray-900 text-white h-screen flex flex-col overflow-hidden">
 
     <header class="bg-gray-800 p-4 shadow-lg flex justify-between items-center z-10">
-        <h1 class="text-xl font-bold text-orange-500">Plataforma Racks Industrial - Modelo Selectivo Estructural</h1>
+        <h1 class="text-xl font-bold text-orange-500">Plataforma Racks Industrial - Visor de Componentes Reales</h1>
         <div class="flex items-center gap-2">
             <span class="relative flex h-3 w-3">
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                 <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
             </span>
-            <div class="text-sm text-gray-400">Réplica Estructural Activa</div>
+            <div class="text-sm text-gray-400">Renderizado de Fábrica Activo</div>
         </div>
     </header>
 
@@ -27,12 +28,12 @@
             <h2 class="text-lg font-semibold border-b border-gray-700 pb-2 text-gray-300">Variables Detectadas</h2>
             
             <div>
-                <label class="text-xs text-gray-400 block font-medium">TIPO DE RACK</label>
-                <div id="data-tipo" class="bg-gray-700 p-2 rounded mt-1 font-mono text-orange-400">Conectando...</div>
+                <label class="text-xs text-gray-400 block font-medium">TIPO DE RACK / PIEZA</label>
+                <div id="data-tipo" class="bg-gray-700 p-2 rounded mt-1 font-mono text-orange-400">Cargando GLB...</div>
             </div>
 
             <div>
-                <label class="text-xs text-gray-400 block font-medium">NÚMERO DE NIVELES</label>
+                <label class="text-xs text-gray-400 block font-medium">NÚMERO DE NIVELES (REPETICIONES)</label>
                 <div id="data-niveles" class="bg-gray-700 p-2 rounded mt-1 font-mono">0</div>
             </div>
 
@@ -43,7 +44,7 @@
 
             <div class="mt-4 bg-gray-950 p-3 rounded border border-gray-700 flex-1">
                 <span class="text-xs font-bold text-blue-400 block mb-1">💡 Notas Técnicas de la IA:</span>
-                <p id="data-comentarios" class="text-xs text-gray-400 leading-relaxed font-sans">Sincronizando geometría industrial avanzada...</p>
+                <p id="data-comentarios" class="text-xs text-gray-400 leading-relaxed font-sans">Sincronizando gemelo digital desde el archivo adjunto...</p>
             </div>
         </div>
 
@@ -57,13 +58,13 @@
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         let ultimoIdProcesado = null;
 
-        // --- 2. CONFIGURACIÓN DE SCENE & THREE.JS ---
+        // --- 2. CONFIGURACIÓN DEL ESCENARIO THREE.JS ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0f172a);
+        scene.background = new THREE.Color(0x0f172a); // Fondo Slate Oscuro
 
-        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
-        camera.position.set(4, 3, 5);
+        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 1000);
+        camera.position.set(1.5, 1.5, 2); // Cámara más cerca para apreciar la pieza pequeña
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(container.clientWidth, container.clientHeight);
@@ -72,119 +73,67 @@
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.target.set(0, 1.2, 0);
+        controls.target.set(0, 0.5, 0);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        scene.add(ambientLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(6, 12, 8);
+        // Iluminación optimizada para metales e ingeniería industrial
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(5, 8, 5);
         dirLight.castShadow = true;
         scene.add(dirLight);
 
-        const gridHelper = new THREE.GridHelper(20, 20, 0x475569, 0x334155);
+        // Rejilla de guía en el suelo escalada
+        const gridHelper = new THREE.GridHelper(10, 20, 0x475569, 0x334155);
         scene.add(gridHelper);
 
         let rackGroup = new THREE.Group();
         scene.add(rackGroup);
 
-        // --- 3. NUEVA LÓGICA DE GEOMETRÍA INDUSTRIAL SELECTIVA (REPLICA SKETCHUP) ---
-        function dibujarRack3D(niveles, fondoPosteMM, peralteCM, tieneEscalon) {
+        // --- 3. CARGADOR DE MODELOS 3D GLTF/GLB REALES ---
+        const loader = new THREE.GLTFLoader();
+        let modeloMensulaBase = null;
+
+        // Carga asíncrona de tu componente real en GitHub Pages
+        loader.load('(RL0036)_MENSULA_GOTA_CARGA_LIGERA_DERECHA.glb', (gltf) => {
+            modeloMensulaBase = gltf.scene;
+            console.log("¡Ménsula Gota cargada con éxito desde la raíz!");
+            
+            // Forzamos un renderizado inicial de prueba apenas descarga
+            rackGroup.add(modeloMensulaBase);
+            
+            // Si Supabase ya respondió antes de que terminara la descarga, procesamos los niveles acumulados
+            cargarUltimaCotizacion();
+        }, undefined, (error) => {
+            console.error("Error crítico cargando el archivo GLB:", error);
+            document.getElementById('data-tipo').innerText = "Error al leer GLB";
+        });
+
+        // --- 4. ENSAMBLADOR PARAMÉTRICO DE MODELOS REALES ---
+        function construirRackConModelosReales(niveles) {
+            // Limpiar renderizados previos en el grupo
             while(rackGroup.children.length > 0){ 
                 rackGroup.remove(rackGroup.children[0]); 
             }
 
-            // Colores exactos del modelo industrial (Azul Ral y Naranja Eléctrico)
-            const materialPoste = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.3, metalness: 0.3 }); // Marcos
-            const materialViga = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.2, metalness: 0.4 });  // Largueros
-            const materialGalvanizado = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.4, metalness: 0.6 }); // Diagonales
+            // Si el archivo .glb aún no se descarga de GitHub, salimos del paso temporalmente
+            if (!modeloMensulaBase) {
+                console.log("Esperando descarga del modelo base...");
+                return;
+            }
 
-            const anchoRack = 2.5;   
-            const fondoRack = 1.0;   
-            const alturaNivel = 1.1; 
-            
-            const grosorPosteX = 0.08; 
-            const grosorPosteZ = fondoPosteMM / 1000; 
-            const altoViga = peralteCM / 100;         
-            const anchoVigaZ = 0.05;                  
+            // Al ser una ménsula (pieza unitaria), la multiplicamos verticalmente
+            // como columnas/niveles para validar la reactividad del sistema
+            const alturaIntervalo = 0.4; // Ajustado a metros para simular repisas
 
-            const alturaTotal = (niveles * alturaNivel) + 0.4;
-
-            // 1. DIBUJAR LOS MARCOS LATERALES (Postes + Diagonales de Celosía)
-            const posicionesX = [-anchoRack/2, anchoRack/2];
-            const posicionesZ = [-fondoRack/2, fondoRack/2];
-
-            posicionesX.forEach(x => {
-                // Postes verticales del marco
-                posicionesZ.forEach(z => {
-                    const geomPoste = new THREE.BoxGeometry(grosorPosteX, alturaTotal, grosorPosteZ);
-                    const poste = new THREE.Mesh(geomPoste, materialPoste);
-                    poste.position.set(x, alturaTotal / 2, z);
-                    poste.castShadow = true;
-                    poste.receiveShadow = true;
-                    rackGroup.add(poste);
-                });
-
-                // Arriostramiento / Diagonales de seguridad (Cruces transversales del marco lateral)
-                const numCruces = niveles * 2;
-                const intervaloH = alturaTotal / numCruces;
-                
-                for (let j = 0; j < numCruces; j++) {
-                    const zInicio = (j % 2 === 0) ? -fondoRack/2 : fondoRack/2;
-                    const zFin = (j % 2 === 0) ? fondoRack/2 : -fondoRack/2;
-                    const yInicio = j * intervaloH;
-                    const yFin = (j + 1) * intervaloH;
-
-                    // Calcular distancia y ángulo para la diagonal metálica
-                    const dx = 0;
-                    const dy = yFin - yInicio;
-                    const dz = zFin - zInicio;
-                    const longitud = Math.sqrt(dy*dy + dz*dz);
-
-                    const geomDiagonal = new THREE.BoxGeometry(0.02, 0.04, longitud);
-                    const diagonal = new THREE.Mesh(geomDiagonal, materialGalvanizado);
-                    
-                    diagonal.position.set(x, (yInicio + yFin) / 2, 0);
-                    diagonal.lookAt(new THREE.Vector3(x, yFin, zFin));
-                    rackGroup.add(diagonal);
-                }
-
-                // Travesaños horizontales base y tope del marco
-                [0.05, alturaTotal - 0.05].forEach(yPos => {
-                    const geomHorizontal = new THREE.BoxGeometry(0.03, 0.04, fondoRack - grosorPosteZ);
-                    const horiz = new THREE.Mesh(geomHorizontal, materialGalvanizado);
-                    horiz.position.set(x, yPos, 0);
-                    rackGroup.add(horiz);
-                });
-            });
-
-            // 2. DIBUJAR LARGUEROS CON CONECTORES DE SEGURIDAD (GARRAS)
             for (let i = 1; i <= niveles; i++) {
-                const alturaVigaActual = i * alturaNivel;
-
-                for (let lado = -1; lado <= 1; lado += 2) {
-                    const zPos = (fondoRack / 2) * lado;
-
-                    // Cuerpo principal del larguero (Horizontal)
-                    const geomVigaRect = new THREE.BoxGeometry(anchoRack - grosorPosteX, altoViga, anchoVigaZ);
-                    const viga = new THREE.Mesh(geomVigaRect, materialViga);
-                    viga.position.set(0, alturaVigaActual, zPos);
-                    viga.castShadow = true;
-                    rackGroup.add(viga);
-
-                    // Conectores / Garras terminales (Los ganchos naranjas que abrazan el poste vertical)
-                    [-1, 1].forEach(posXSigno => {
-                        const xConector = (anchoRack / 2 - grosorPosteX / 2) * posXSigno;
-                        const geomConector = new THREE.BoxGeometry(0.01, altoViga + 0.04, anchoVigaZ * 1.4);
-                        const conector = new THREE.Mesh(geomConector, materialViga);
-                        conector.position.set(xConector + (0.005 * -posXSigno), alturaVigaActual, zPos);
-                        rackGroup.add(conector);
-                    });
-                }
+                const piezaClonada = modeloMensulaBase.clone();
+                piezaClonada.position.set(0, (i - 1) * alturaIntervalo, 0);
+                rackGroup.add(piezaClonada);
             }
         }
 
-        // --- 4. CONSULTA AUTOMÁTICA A SUPABASE ---
+        // --- 5. ENLACE RECOLECTOR EN TIEMPO REAL (SUPABASE POLLING) ---
         async function cargarUltimaCotizacion() {
             try {
                 const { data, error } = await supabaseClient
@@ -197,44 +146,33 @@
                 if (error) throw error;
                 if (!data) return;
 
+                // Evitamos re-renderizados idénticos innecesarios
                 if (data.id === ultimoIdProcesado) return;
                 ultimoIdProcesado = data.id;
 
                 const variables = data.variables_json;
-                const comentarios = (variables.comentarios_adicionales || "").toLowerCase();
 
-                let fondoPosteMM = 73; 
-                if (comentarios.includes("73 mm") || comentarios.includes("73mm")) fondoPosteMM = 73;
-                else if (comentarios.includes("90 mm") || comentarios.includes("90mm")) fondoPosteMM = 90;
-
-                let peralteCM = 10; 
-                if (comentarios.includes("12.5")) peralteCM = 12.5;
-                else if (comentarios.includes("15")) peralteCM = 15;
-                else if (comentarios.includes("10")) peralteCM = 10;
-
-                const tieneEscalon = comentarios.includes("con escalón") || comentarios.includes("con escalon");
-
-                document.getElementById('data-tipo').innerText = variables.tipo_rack || "Selectivo Industrial";
-                document.getElementById('data-niveles').innerText = variables.numero_niveles || 0;
+                // Inyección dinámica en el panel lateral HTML
+                document.getElementById('data-tipo').innerText = variables.tipo_rack || "Ménsula Gota Detectada";
+                document.getElementById('data-niveles').innerText = variables.numero_niveles || 1;
                 document.getElementById('data-peso').innerText = (variables.peso_maximo_por_nivel_kg || 0).toLocaleString() + " kg";
-                document.getElementById('data-comentarios').innerText = variables.comentarios_adicionales || "Sin comentarios.";
+                document.getElementById('data-comentarios').innerText = variables.comentarios_adicionales || "Sin anotaciones.";
 
+                // Construcción automatizada en el motor 3D
                 const cantNiveles = parseInt(variables.numero_niveles) || 1;
-                dibujarRack3D(cantNiveles, fondoPosteMM, peralteCM, tieneEscalon);
+                construirRackConModelosReales(cantNiveles);
 
             } catch (err) {
-                console.error("Error en sincronización paramétrica:", err);
+                console.error("Error en sincronización con piezas reales:", err);
             }
         }
 
-        // --- 5. RUNTIME ---
-        dibujarRack3D(1, 73, 10, false);
-        cargarUltimaCotizacion();
-
+        // Ejecución cíclica cada 4 segundos
         setInterval(() => {
             cargarUltimaCotizacion();
         }, 4000);
 
+        // Loop de renderizado continuo para animación fluida de cámara
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
@@ -242,6 +180,7 @@
         }
         animate();
 
+        // Soporte responsivo para pantallas móviles y tabletas
         window.addEventListener('resize', () => {
             camera.aspect = container.clientWidth / container.clientHeight;
             camera.updateProjectionMatrix();
