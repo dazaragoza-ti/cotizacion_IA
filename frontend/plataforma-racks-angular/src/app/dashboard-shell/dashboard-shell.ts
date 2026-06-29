@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DashboardService } from '../services/dashboard.service';
+import { DashboardService, StorageFileItem } from '../services/dashboard.service';
 
 type ModuleKey = 'analiticas' | 'alimentar' | 'draco';
 
@@ -22,6 +22,8 @@ export class DashboardShellComponent implements OnInit {
   activity: string[] = [];
   usageBars: Array<{ label: string; value: string; percent: number; tone: string }> = [];
   summaryItems: Array<{ label: string; value: string }> = [];
+  aiDocuments: StorageFileItem[] = [];
+  dracoModels: StorageFileItem[] = [];
 
   constructor(private dashboardService: DashboardService) {}
 
@@ -50,6 +52,7 @@ export class DashboardShellComponent implements OnInit {
       localStorage.setItem('sb_url', this.supabaseUrl);
       localStorage.setItem('sb_key', this.supabaseKey);
       await this.loadMetrics();
+      await this.loadStorageContent();
       this.connected = true;
       this.connectionText = 'Conexión Activa';
     } catch (error) {
@@ -106,6 +109,23 @@ export class DashboardShellComponent implements OnInit {
       this.usageBars = [];
       this.summaryItems = [];
       this.activity = ['No fue posible cargar métricas desde Supabase.'];
+    }
+  }
+
+  async loadStorageContent(): Promise<void> {
+    try {
+      const [quotesFiles, pricesFiles, modelFiles] = await Promise.all([
+        this.dashboardService.listStorageFiles('cotizaciones', 'Racks'),
+        this.dashboardService.listStorageFiles('precios unitarios', 'productos'),
+        this.dashboardService.listStorageFiles('modelos', 'modelos 3d de racks')
+      ]);
+
+      this.aiDocuments = [...quotesFiles, ...pricesFiles].sort((a, b) => a.name.localeCompare(b.name));
+      this.dracoModels = modelFiles.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      console.warn('No se pudieron cargar los archivos desde Supabase Storage', error);
+      this.aiDocuments = [];
+      this.dracoModels = [];
     }
   }
 

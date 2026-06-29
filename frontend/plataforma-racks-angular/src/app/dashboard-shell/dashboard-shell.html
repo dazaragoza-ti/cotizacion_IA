@@ -118,26 +118,44 @@
         <div class="module-header">
           <div>
             <h2>Alimentar Inteligencia Artificial</h2>
-            <p>Sube fichas técnicas, cotizaciones y bosquejos para entrenar los hilos contextuales de la IA.</p>
+            <p>Documentos de cotizaciones y precios unitarios disponibles en Supabase Storage.</p>
           </div>
         </div>
-        <div class="empty-state">
-          <i class="fa-solid fa-cloud-arrow-up"></i>
-          <p>Esta vista está preparada para recibir documentos de entrenamiento.</p>
+        <div class="file-list" *ngIf="aiDocuments.length; else emptyDocs">
+          <a class="file-card" *ngFor="let doc of aiDocuments" [href]="doc.url" target="_blank" rel="noopener noreferrer">
+            <div class="file-title">{{ doc.name }}</div>
+            <div class="file-meta">{{ doc.bucket }} / {{ doc.folder }}</div>
+            <div class="file-meta">{{ doc.type }}</div>
+          </a>
         </div>
+        <ng-template #emptyDocs>
+          <div class="empty-state">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <p>No hay documentos disponibles en los buckets indicados.</p>
+          </div>
+        </ng-template>
       </div>
 
       <div class="module-panel" [class.hidden]="activeModule !== 'draco'">
         <div class="module-header">
           <div>
             <h2>Compresor Draco CAD & Registro Directo</h2>
-            <p>Optimiza tus modelos 3D y regístralos con metadatos desde la misma consola.</p>
+            <p>Modelos 3D disponibles en el bucket de Supabase para compresión y gestión.</p>
           </div>
         </div>
-        <div class="empty-state">
-          <i class="fa-solid fa-file-contract"></i>
-          <p>El flujo de compresión y registro se integrará aquí con la misma identidad visual del dashboard.</p>
+        <div class="file-list" *ngIf="dracoModels.length; else emptyModels">
+          <a class="file-card" *ngFor="let model of dracoModels" [href]="model.url" target="_blank" rel="noopener noreferrer">
+            <div class="file-title">{{ model.name }}</div>
+            <div class="file-meta">{{ model.bucket }} / {{ model.folder }}</div>
+            <div class="file-meta">{{ model.type }}</div>
+          </a>
         </div>
+        <ng-template #emptyModels>
+          <div class="empty-state">
+            <i class="fa-solid fa-file-contract"></i>
+            <p>No hay modelos 3D disponibles aún en el bucket indicado.</p>
+          </div>
+        </ng-template>
       </div>
     </section>
   </main>

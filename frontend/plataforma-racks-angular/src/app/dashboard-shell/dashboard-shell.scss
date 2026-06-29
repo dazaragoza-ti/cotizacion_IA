@@ -376,6 +376,31 @@
   color: #4f46e5;
 }
 
+.file-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.file-card {
+  display: block;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.file-title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.file-meta {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
 @keyframes pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.2); opacity: 0.7; }

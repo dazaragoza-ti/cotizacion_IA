@@ -10,9 +10,20 @@ export interface DashboardMetrics {
   estimatedCost: number;
 }
 
+export interface StorageFileItem {
+  name: string;
+  bucket: string;
+  folder: string;
+  path: string;
+  size: number;
+  type: string;
+  url: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
   private supabase: SupabaseClient | null = null;
+  private readonly backendBaseUrl = 'http://localhost:8000';
 
   setConnection(url: string, key: string): void {
     const supabaseUrl = url.trim();
@@ -54,5 +65,22 @@ export class DashboardService {
       avgTokensPerProject,
       estimatedCost
     };
+  }
+
+  async listStorageFiles(bucket: string, folder: string): Promise<StorageFileItem[]> {
+    if (!bucket) {
+      return [];
+    }
+
+    const params = new URLSearchParams({ bucket, folder });
+    const response = await fetch(`${this.backendBaseUrl}/storage/files?${params.toString()}`);
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || 'No se pudieron cargar los archivos desde Storage');
+    }
+
+    const payload = await response.json() as { files?: StorageFileItem[] };
+    return (payload.files ?? []).sort((a, b) => a.name.localeCompare(b.name));
   }
 }

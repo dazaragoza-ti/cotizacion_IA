@@ -4,7 +4,10 @@ import easyocr
 import json
 import asyncio
 import urllib.parse  # Para codificar de forma segura las credenciales en la URL
-from fastapi import FastAPI, UploadFile, File, Form
+import urllib.request
+import urllib.error
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
 from pydantic import BaseModel
 from groq import Groq
@@ -29,6 +32,92 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # URL de tu visualizador alojado en GitHub Pages (apuntando al archivo explícito)
 URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/index.html"
+
+def _normalizar_candidatos_bucket(bucket: str) -> list[str]:
+    bucket = (bucket or "").strip()
+    if not bucket:
+        return []
+
+    base = bucket.lower().strip()
+    alternates = [
+        bucket,
+        base,
+        base.replace(" ", "_"),
+        base.replace(" ", "-"),
+        base.replace(" ", ""),
+        base.replace(" ", "").replace("_", "-"),
+        base.replace(" ", "").replace("-", "_"),
+    ]
+    return list(dict.fromkeys([item for item in alternates if item]))
+
+
+def listar_archivos_storage(bucket: str, folder: str | None = None) -> list[dict]:
+    storage_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    api_key = (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE")
+        or os.getenv("SUPABASE_KEY")
+    )
+
+    if not storage_url or not api_key:
+        raise RuntimeError("No hay configuración de Supabase para consultar Storage")
+
+    folder_prefix = (folder or "").strip().strip("/")
+    candidates = _normalizar_candidatos_bucket(bucket)
+
+    for candidate_bucket in candidates:
+        url = f"{storage_url}/storage/v1/object/list/{urllib.parse.quote(candidate_bucket, safe='')}"
+        if folder_prefix:
+            url += f"?prefix={urllib.parse.quote(folder_prefix, safe='')}"
+
+        request = urllib.request.Request(
+            url,
+            headers={
+                "apikey": api_key,
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if isinstance(payload, list):
+                    archivos = []
+                    for item in payload:
+                        if not isinstance(item, dict):
+                            continue
+                        name = item.get("name")
+                        if not name or name == ".emptyFolderPlaceholder":
+                            continue
+                        relative_path = f"{folder_prefix}/{name}" if folder_prefix else name
+                        archivos.append({
+                            "name": name,
+                            "bucket": candidate_bucket,
+                            "folder": folder_prefix,
+                            "path": relative_path,
+                            "size": item.get("metadata", {}).get("size", 0),
+                            "type": item.get("metadata", {}).get("mimetype", "archivo"),
+                            "url": f"{storage_url}/storage/v1/object/public/{candidate_bucket}/{urllib.parse.quote(relative_path, safe='')}"
+                        })
+                    return archivos
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (401, 403, 404):
+                raise
+            continue
+        except Exception:
+            continue
+
+    return []
+
+
+@app.get("/storage/files")
+def obtener_archivos_storage(bucket: str, folder: str | None = None):
+    try:
+        archivos = listar_archivos_storage(bucket, folder)
+        return {"bucket": bucket, "folder": folder or "", "files": archivos}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 def consultar_catalogo_piezas() -> list:
     """
