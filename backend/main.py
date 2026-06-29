@@ -3,12 +3,12 @@ import fitz  # PyMuPDF
 import easyocr
 import json
 import asyncio
-import urllib.parse
+import urllib.parse  # Para codificar de forma segura las credenciales en la URL
 from fastapi import FastAPI, UploadFile, File, Form
 from supabase import create_client, Client
 from pydantic import BaseModel
 from groq import Groq
-from anthropic import Anthropic
+from anthropic import Anthropic  
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
@@ -27,20 +27,19 @@ anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 ocr_reader = easyocr.Reader(['es'])
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# URL de tu visualizador alojado en GitHub Pages
-URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/"
+# URL de tu visualizador alojado en GitHub Pages (apuntando al archivo explícito)
+URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/index.html"
 
 def consultar_catalogo_piezas() -> list:
     """
     Trae el inventario de componentes reales disponibles de Supabase.
-    Si la tabla está vacía, no existe, o la consulta falla, provee un catálogo técnico
-    con valores de ingeniería por defecto para evitar que Claude se quede sin contexto de diseño.
+    Si la tabla está vacía, no existe, o la consulta falla, provee el catálogo técnico
+    con los tres modelos de precisión reales que ya tienes integrados en Supabase.
     """
     fallback_piezas = [
-        {"sku": "VIGA-LIG-2400", "nombre": "Viga Ligera 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 800},
-        {"sku": "VIGA-PES-2400", "nombre": "Viga Pesada 2.4m", "tipo": "viga", "longitud_metros": 2.4, "peso_maximo_soportado_kg": 2200},
-        {"sku": "MARCO-ALT-4000", "nombre": "Marco Estructural 4m", "tipo": "marco", "altura_metros": 4.0, "profundidad_metros": 1.0},
-        {"sku": "MENSULA-ESTANDAR", "nombre": "Ménsula de Ensamble", "tipo": "mensula"}
+        {"sku": "(-)_RACK_180X61X151", "nombre": "Rack Estructural Base 1.80m x 0.61m", "tipo": "rack_base", "longitud_metros": 1.80, "altura_metros": 1.51, "profundidad_metros": 0.61},
+        {"sku": "CABECERA_302X91_CON_TRAVESANO", "nombre": "Cabecera Lateral 3.02m con Travesaño", "tipo": "marco", "longitud_metros": 0.08, "altura_metros": 3.02, "profundidad_metros": 0.91},
+        {"sku": "MENSULA_GOTA_CARGA_LIGERA_DERECHA", "nombre": "Ménsula Gota Carga Ligera Derecha", "tipo": "mensula"}
     ]
     try:
         resultado = supabase.table("catalogo_piezas").select("*").execute()
@@ -64,19 +63,15 @@ def obtener_ultimo_diseno(session_id: str) -> dict | None:
 def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
     """
     Lógica del Agente de Ensamble:
-    1. Si no existe un diseño previo, calcula y genera un ensamble desde cero.
-    2. Si existe un diseño previo, Claude toma las coordenadas espaciales del JSON anterior y
-       recalcula únicamente los componentes afectados por el comentario del usuario (Memoria de Diseño).
-
-    FIX: El tool ahora guarda los componentes (marcos, vigas, mensulas) dentro de
-    "matriz_ensamble_3d" como objeto anidado, en lugar de en la raíz. Esto unifica
-    el schema con el que espera el frontend en renderRack().
+    - Base de Diseño: Toma el modelo pre-armado '(-)_RACK_180X61X151' (de 1.80m de ancho x 0.61m de prof x 1.51m de alto) como el plano dimensional maestro.
+    - Modularización y Recreación: Cuando el usuario pide estructurar el rack a partir de piezas individuales o expandir niveles superiores,
+      la IA utilizará los marcos 'CABECERA_302X91_CON_TRAVESANO' y acoplará las vigas mediante las ménsulas 'MENSULA_GOTA_CARGA_LIGERA_DERECHA'
+      replicando la alineación, cotas y el ancho exacto del modelo base original.
     """
     catalogo_disponible = consultar_catalogo_piezas()
     diseno_previo = obtener_ultimo_diseno(session_id)
 
-    # FIX #1: Schema del tool corregido — componentes anidados dentro de "matriz_ensamble_3d"
-    # para que coincidan exactamente con lo que el frontend espera en renderRack().
+    # Estructura limpia de componentes en la raíz del ensamble
     herramienta_guardar_diseno = {
         "name": "guardar_diseno_3d",
         "description": "Registra la matriz y geometría de ensamble 3D del rack.",
@@ -86,88 +81,64 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
                 "tipo_rack": {"type": "string"},
                 "peso_maximo_por_nivel_kg": {"type": "number"},
                 "numero_niveles": {"type": "integer"},
-                "comentarios_adicionales": {"type": "string"},
-                # Los componentes 3D van ANIDADOS en este objeto
-                "matriz_ensamble_3d": {
-                    "type": "object",
-                    "properties": {
-                        "marcos": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "sku": {"type": "string"},
-                                    "posicion": {
-                                        "type": "object",
-                                        "properties": {
-                                            "x": {"type": "number"},
-                                            "y": {"type": "number"},
-                                            "z": {"type": "number"}
-                                        },
-                                        "required": ["x", "y", "z"]
-                                    }
-                                },
-                                "required": ["sku", "posicion"]
-                            }
-                        },
-                        "vigas": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "sku": {"type": "string"},
-                                    "nivel": {"type": "integer"},
-                                    "posicion": {
-                                        "type": "object",
-                                        "properties": {
-                                            "x": {"type": "number"},
-                                            "y": {"type": "number"},
-                                            "z": {"type": "number"}
-                                        },
-                                        "required": ["x", "y", "z"]
-                                    }
-                                },
-                                "required": ["sku", "nivel", "posicion"]
-                            }
-                        },
-                        "mensulas": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "sku": {"type": "string"},
-                                    "nivel": {"type": "integer"},
-                                    "lado": {"type": "string", "enum": ["izq", "der"]},
-                                    "posicion": {
-                                        "type": "object",
-                                        "properties": {
-                                            "x": {"type": "number"},
-                                            "y": {"type": "number"},
-                                            "z": {"type": "number"}
-                                        },
-                                        "required": ["x", "y", "z"]
-                                    }
-                                },
-                                "required": ["sku", "nivel", "lado", "posicion"]
-                            }
+                "marcos": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
                         }
-                    },
-                    "required": ["marcos", "vigas", "mensulas"]
-                }
+                    }
+                },
+                "vigas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "mensulas": {
+                    "type": "array", 
+                    "items": {
+                        "type": "object", 
+                        "properties": {
+                            "sku": {"type": "string"}, 
+                            "nivel": {"type": "integer"}, 
+                            "lado": {"type": "string"}, 
+                            "posicion": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}}
+                        }
+                    }
+                },
+                "comentarios_adicionales": {"type": "string"}
             },
-            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "matriz_ensamble_3d", "comentarios_adicionales"]
+            "required": ["tipo_rack", "peso_maximo_por_nivel_kg", "numero_niveles", "marcos", "vigas", "mensulas", "comentarios_adicionales"]
         }
     }
 
+    # REGLAS GEOMÉTRICAS MAESTRAS BASADAS EN TU RACK DE REFERENCIA:
     system_prompt = (
         "Eres un Ingeniero CAD Senior especializado en modelado espacial de racks industriales en 3D.\n"
-        "Tu única tarea es calcular la colocación y rotación de componentes físicos en metros (ejes X, Y, Z).\n\n"
-        "REGLAS GEOMÉTRICAS CLAVE:\n"
-        "- Eje Y representa la altura. Las vigas de cada nivel deben espaciarse uniformemente (ej: nivel 1 en Y=0.8, nivel 2 en Y=1.8, etc.).\n"
-        "- Eje X representa el ancho. El marco izquierdo se sitúa en X = -1.2, y el marco derecho en X = 1.2.\n"
-        "- Las vigas horizontales deben centrarse en X = 0.\n"
-        "- Las ménsulas de acople deben situarse exactamente sobre los marcos (ej: en X = -1.2 para el lado izquierdo y X = 1.2 para el derecho) a la misma altura Y de la viga del nivel.\n\n"
-        f"INVENTARIO DISPONIBLE EN SUPABASE:\n{json.dumps(catalogo_disponible, indent=2)}\n"
+        "Tu única tarea es calcular la colocación de componentes físicos en metros (ejes X, Y, Z).\n\n"
+        "MODELO BLUEPRINT DE REFERENCIA:\n"
+        "- '(-)_RACK_180X61X151': Módulo completo pre-ensamblado de 1 nivel. Mide exactamente 1.80m de largo (ancho), 1.51m de alto, 0.61m de profundidad.\n"
+        "  • El ancho útil del rack de referencia es de 1.80 metros (las cabeceras están separadas por esa distancia).\n"
+        "  • El fondo del rack de referencia es de 0.61 metros.\n\n"
+        "REGLAS DE RECREACIÓN MODULAR COMPONENTES REALES:\n"
+        "- 'CABECERA_302X91_CON_TRAVESANO': Marco estructural lateral de 3.02m de altura, 0.91m de profundidad.\n"
+        "- 'MENSULA_GOTA_CARGA_LIGERA_DERECHA': Ménsula de acople drop-lock de carga ligera.\n"
+        "- 'VIGA-2000' (u otra del catálogo de longitud aproximada a 1.80m):\n\n"
+        "INSTRUCCIONES DE CONSTRUCCIÓN:\n"
+        "1. Si el usuario solicita un rack de un solo nivel, utiliza directamente el modelo pre-armado '(-)_RACK_180X61X151' posicionado en X=0, Y=0, Z=0.\n"
+        "2. Si el usuario solicita un rack modular extendido, o requiere expandir el diseño agregando más niveles de carga:\n"
+        "  • Utiliza dos cabeceras 'CABECERA_302X91_CON_TRAVESANO' como soportes laterales colocados a los lados. Para respetar el ancho del rack base de 1.80 metros, sitúa la cabecera izquierda en X = -0.9 y la cabecera derecha en X = 0.9.\n"
+        "  • Coloca las vigas horizontales superiores a lo largo de las alturas Y deseadas (ej: nivel 1 en Y=0.8, nivel 2 en Y=1.8, nivel 3 en Y=2.7).\n"
+        "  • En cada extremo lateral de enganche de las vigas superiores, coloca las ménsulas 'MENSULA_GOTA_CARGA_LIGERA_DERECHA' (posicionadas a la misma altura Y de la viga del nivel, en X = -0.9 para el extremo izquierdo y X = 0.9 para el extremo derecho) para simular de forma impecable el acople físico de fábrica.\n\n"
+        f"INVENTARIO TÉCNICO COMPLETO EN SUPABASE:\n{json.dumps(catalogo_disponible, indent=2)}\n"
     )
 
     if diseno_previo:
@@ -176,11 +147,9 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
             "El usuario está enviando una solicitud para modificar un diseño anterior.\n"
             "Analiza el JSON del diseño anterior provisto abajo, interpreta la orden del usuario "
             "y recalcula EXCLUSIVAMENTE los parámetros de posición Y o X de los componentes que lo requieran.\n"
-            "Mantén intactos todos los demás componentes y SKUs."
+            "Conserva la relación de alineación de 1.80m de ancho basada en '(-)_RACK_180X61X151' y ajusta solo lo necesario."
         )
-        # FIX #2: Leer correctamente la matriz del diseño previo (puede estar anidada o en raíz)
-        matriz_previa = diseno_previo.get("matriz_ensamble_3d", {})
-        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(matriz_previa)}\nCAMBIO: {comentario_usuario}"
+        prompt_usuario = f"DISEÑO ANTERIOR:\n{json.dumps(diseno_previo['matriz_ensamble_3d'])}\nCAMBIO: {comentario_usuario}"
         proxima_version = diseno_previo["version_actual"] + 1
         solicitud_inicial = diseno_previo["solicitud_original"]
         historial = diseno_previo.get("historial_comentarios", []) or []
@@ -188,7 +157,8 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     else:
         system_prompt += (
             "\nESTADO: Modo Diseño Nuevo.\n"
-            "Calcula la estructura de ensamble óptima desde cero."
+            "Calcula la estructura de ensamble óptima desde cero utilizando el rack base '(-)_RACK_180X61X151' en X=0, Y=0, Z=0 como primer nivel obligatorio, "
+            "y apila las cabeceras de 3m, vigas superiores y ménsulas adicionales si se requieren niveles superiores."
         )
         prompt_usuario = f"Requerimiento: {comentario_usuario}"
         proxima_version = 1
@@ -208,18 +178,33 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
     tool_calls = [c for c in response.content if c.type == "tool_use"]
     if not tool_calls:
         raise ValueError("Claude no pudo mapear de forma estructurada las coordenadas.")
-
+        
     datos_ensamble = tool_calls[0].input
 
-    # FIX #3: Guardar el objeto completo que devuelve Claude (ya incluye matriz_ensamble_3d anidada)
-    # en la columna "matriz_ensamble_3d" de Supabase para que el frontend lo lea correctamente.
+    usage = {}
+    if hasattr(response, "usage"):
+        usage = response.usage or {}
+    elif isinstance(response, dict):
+        usage = response.get("usage", {}) or {}
+    elif hasattr(response, "get"):
+        usage = response.get("usage", {}) or {}
+
+    if isinstance(usage, dict):
+        input_tokens = usage.get("input_tokens", 0) or 0
+        output_tokens = usage.get("output_tokens", 0) or 0
+    else:
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
+
     supabase.table("disenos_racks").insert({
         "vendedor_id": vendedor_id,
         "session_id": session_id,
         "solicitud_original": solicitud_inicial,
         "version_actual": proxima_version,
-        "matriz_ensamble_3d": datos_ensamble,   # ← objeto completo con matriz anidada
-        "historial_comentarios": historial
+        "matriz_ensamble_3d": datos_ensamble,
+        "historial_comentarios": historial,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens
     }).execute()
 
     return {"version": proxima_version, "variables": datos_ensamble}
@@ -240,12 +225,12 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
     session_id = str(update.effective_chat.id)
     vendedor_anon = f"Telegram_{update.effective_user.first_name}"
     mensaje_espera = await update.message.reply_text("📐 Calculando geometría 3D...")
-
+    
     foto = update.message.photo
     documento = update.message.document
     texto = update.message.text
     voz = update.message.voice
-
+    
     temp_path = ""
     texto_limpio = ""
 
@@ -269,27 +254,24 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
             await file.download_to_drive(temp_path)
             texto_limpio = extraer_texto_imagen(temp_path)
         else:
-            await mensaje_espera.edit_text("❌ Formato no soportado.")
+            await mensaje_espera.edit_text("❌ Formato de mensaje no soportado.")
             return
 
         resultado = procesar_diseno_auto_correctivo(texto_limpio, session_id, vendedor_anon)
         version = resultado.get("version")
         datos = resultado.get("variables")
-
-        # FIX #4: Leer vigas del lugar correcto (dentro de matriz_ensamble_3d)
-        matriz = datos.get("matriz_ensamble_3d", {})
+        
+        # Soportar que la matriz de componentes esté en la raíz o anidada
+        matriz = datos.get("matriz_ensamble_3d") if datos.get("matriz_ensamble_3d") else datos
         vigas_list = matriz.get("vigas", [])
-        vigas_resumen = "\n".join([
-            f"  • Nivel {v.get('nivel')}: SKU <code>{v.get('sku')}</code> en Y={v.get('posicion', {}).get('y')}m"
-            for v in vigas_list
-        ])
+        vigas_resumen = "\n".join([f"  • Nivel {v.get('nivel')}: SKU <code>{v.get('sku')}</code> en Y={v.get('posicion', {}).get('y')}m" for v in vigas_list]) if vigas_list else "  • No se generaron componentes superiores en el cálculo."
 
         sb_url = os.getenv("SUPABASE_URL", "")
         sb_key = os.getenv("SUPABASE_KEY", "")
-
+        
         encoded_url = urllib.parse.quote_plus(sb_url)
         encoded_key = urllib.parse.quote_plus(sb_key)
-
+        
         link_autenticado = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
 
         transcripcion_html = f"🗣️ <b>Escuché:</b> <i>\"{texto_limpio}\"</i>\n\n" if voz else ""

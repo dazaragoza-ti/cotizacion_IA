@@ -3,597 +3,674 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RackBuilder 3D</title>
-    <link rel="icon" href="data:,">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <title>Visualizador de Racks Industriales 3D - IA</title>
+    <!-- Tailwind CSS para un diseño elegante y moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para iconos de la interfaz -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Importaciones de Three.js y dependencias para renderizado 3D -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    
+    <!-- Cliente de Supabase para suscripción Realtime -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        :root {
-            --bg:        #0a0c10;
-            --surface:   #111318;
-            --border:    #1e2230;
-            --border-hi: #2d3348;
-            --text:      #c8cdd8;
-            --text-dim:  #5a6070;
-            --text-hi:   #eef0f5;
-            --amber:     #f59e0b;
-            --amber-dim: #78450a;
-            --green:     #10b981;
-            --green-dim: #064e35;
-            --red:       #ef4444;
-            --blue:      #3b82f6;
-            --mono:      'IBM Plex Mono', monospace;
-            --sans:      'Inter', sans-serif;
+        /* Estilos personalizados para asegurar que el canvas ocupe todo su contenedor */
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
         }
-
-        html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; overflow: hidden; }
-
-        /* ── LAYOUT ── */
-        #app { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
-
-        /* ── TOPBAR ── */
-        #topbar {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 20px;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            z-index: 10;
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
         }
-        #topbar .brand {
-            display: flex; align-items: center; gap: 10px;
-            font-family: var(--mono); font-size: 13px; font-weight: 600;
-            color: var(--text-hi); letter-spacing: 0.04em;
-        }
-        #topbar .brand .icon {
-            width: 22px; height: 22px;
-            background: var(--amber);
-            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-        }
-        #conn-badge {
-            display: flex; align-items: center; gap: 6px;
-            font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-        }
-        #conn-dot {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: var(--red); transition: background 0.4s;
-        }
-        #conn-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
-        #conn-label { transition: color 0.3s; }
-
-        #session-tag {
-            font-family: var(--mono); font-size: 10px; color: var(--text-dim);
-            background: var(--bg); border: 1px solid var(--border);
-            padding: 3px 8px; border-radius: 3px;
-        }
-        #session-tag.visible { color: var(--amber); border-color: var(--amber-dim); }
-
-        /* ── MAIN GRID ── */
-        #main { display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
-
-        /* ── SIDEBAR ── */
-        #sidebar {
-            background: var(--surface);
-            border-right: 1px solid var(--border);
-            display: flex; flex-direction: column;
-            overflow: hidden;
-        }
-
-        .sidebar-section {
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-        }
-        .sidebar-label {
-            font-family: var(--mono); font-size: 10px; font-weight: 600;
-            color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase;
-            margin-bottom: 10px;
-        }
-
-        /* Spec cards */
-        #spec-cards { display: flex; flex-direction: column; gap: 6px; }
-        .spec-card {
-            background: var(--bg); border: 1px solid var(--border);
-            border-radius: 4px; padding: 8px 10px;
-            display: flex; justify-content: space-between; align-items: baseline;
-        }
-        .spec-card .label { color: var(--text-dim); font-size: 11px; }
-        .spec-card .value {
-            font-family: var(--mono); font-size: 13px; font-weight: 600;
-            color: var(--text-hi);
-        }
-        .spec-card .value.amber { color: var(--amber); }
-        .spec-card.empty .value { color: var(--text-dim); font-size: 11px; font-weight: 400; font-family: var(--sans); }
-
-        /* Component list */
-        #comp-list { flex: 1; overflow-y: auto; padding: 0; }
-        .comp-group { border-bottom: 1px solid var(--border); }
-        .comp-group-header {
-            padding: 8px 16px;
-            font-family: var(--mono); font-size: 10px; font-weight: 600;
-            color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase;
-            background: var(--bg); display: flex; justify-content: space-between;
-        }
-        .comp-group-header .count {
-            background: var(--border); color: var(--text-dim);
-            padding: 1px 6px; border-radius: 10px; font-size: 9px;
-        }
-        .comp-item {
-            padding: 7px 16px;
-            display: grid; grid-template-columns: 1fr auto;
-            gap: 4px; border-bottom: 1px solid var(--border);
-            cursor: pointer; transition: background 0.15s;
-        }
-        .comp-item:hover { background: var(--border); }
-        .comp-item:last-child { border-bottom: none; }
-        .comp-sku { font-family: var(--mono); font-size: 11px; color: var(--amber); }
-        .comp-pos { font-family: var(--mono); font-size: 10px; color: var(--text-dim); text-align: right; }
-        .comp-detail { font-size: 10px; color: var(--text-dim); grid-column: 1/-1; }
-
-        /* Console */
-        #console-wrap { padding: 12px 16px; border-top: 1px solid var(--border); }
-        #console-box {
-            background: var(--bg); border: 1px solid var(--border);
-            border-radius: 4px; padding: 8px;
-            height: 90px; overflow-y: auto;
-            font-family: var(--mono); font-size: 10px; color: var(--text-dim);
-        }
-        #console-box p { line-height: 1.6; }
-        #console-box p.err { color: var(--red); }
-        #console-box p.ok  { color: var(--green); }
-        #console-box p.warn { color: var(--amber); }
-
-        /* ── VIEWPORT ── */
-        #viewport { position: relative; overflow: hidden; background: var(--bg); }
-        #canvas-container { width: 100%; height: 100%; }
-
-        /* Axis overlay */
-        #axis-info {
-            position: absolute; bottom: 16px; left: 16px;
-            font-family: var(--mono); font-size: 10px;
-            color: var(--text-dim); pointer-events: none;
-            display: flex; gap: 12px;
-        }
-        .axis-x { color: #ef4444; } .axis-y { color: var(--green); } .axis-z { color: var(--blue); }
-
-        /* Version badge */
-        #version-badge {
-            position: absolute; top: 14px; right: 16px;
-            font-family: var(--mono); font-size: 11px;
-            background: var(--surface); border: 1px solid var(--border);
-            padding: 4px 10px; border-radius: 3px; color: var(--text-dim);
-            opacity: 0; transition: opacity 0.3s;
-        }
-        #version-badge.visible { opacity: 1; }
-
-        /* Controls hint */
-        #controls-hint {
-            position: absolute; bottom: 16px; right: 16px;
-            font-size: 10px; color: var(--text-dim);
-            font-family: var(--mono); pointer-events: none; text-align: right;
-        }
-
-        /* ── SPLASH (shown when no credentials) ── */
-        #splash {
-            position: absolute; inset: 0;
-            background: var(--bg);
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            gap: 12px; z-index: 5;
-            transition: opacity 0.5s;
-        }
-        #splash.hidden { opacity: 0; pointer-events: none; }
-        #splash .splash-icon {
-            width: 48px; height: 48px;
-            background: var(--amber);
-            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-            animation: pulse-hex 2.5s ease-in-out infinite;
-        }
-        @keyframes pulse-hex {
-            0%, 100% { opacity: 0.4; transform: scale(0.95); }
-            50%       { opacity: 1;   transform: scale(1.05); }
-        }
-        #splash h2 {
-            font-family: var(--mono); font-size: 15px; font-weight: 600;
-            color: var(--text-hi); letter-spacing: 0.05em;
-        }
-        #splash p {
-            font-size: 12px; color: var(--text-dim); text-align: center;
-            max-width: 320px; line-height: 1.7;
-        }
-        #splash .splash-step {
-            display: flex; align-items: center; gap: 8px;
-            font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-        }
-        #splash .splash-step .num {
-            width: 20px; height: 20px; border-radius: 50%;
-            border: 1px solid var(--border-hi);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 10px; color: var(--amber); flex-shrink: 0;
-        }
-
-        /* ── SCROLLBAR ── */
+        /* Estilizar scrollbars delgados para tema claro */
         ::-webkit-scrollbar { width: 4px; } 
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
-
-        /* Loading overlay */
-        #loading-overlay {
-            position: absolute; inset: 0; background: rgba(10,12,16,0.7);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 4; opacity: 0; pointer-events: none; transition: opacity 0.3s;
-        }
-        #loading-overlay.show { opacity: 1; pointer-events: all; }
-        .spinner {
-            width: 32px; height: 32px; border: 2px solid var(--border);
-            border-top-color: var(--amber); border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
     </style>
 </head>
-<body>
-<div id="app">
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans flex flex-col">
 
-    <!-- TOPBAR -->
-    <header id="topbar">
-        <div class="brand">
-            <div class="icon"></div>
-            RACKBUILDER 3D
+    <!-- Barra de Navegación Superior (Tema Claro) -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap justify-between items-center shadow-sm gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="bg-indigo-600 p-2.5 rounded-lg flex items-center justify-center">
+                <i class="fa-solid fa-cubes text-xl text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-slate-900">RackBuilder <span class="text-indigo-600">3D IA</span></h1>
+                <p class="text-xs text-slate-500">Plataforma de Ensamble de Racks Industriales</p>
+            </div>
         </div>
-        <div id="conn-badge">
-            <div id="conn-dot"></div>
-            <span id="conn-label">Sin conexión</span>
+
+        <!-- Credenciales Rápidas / AutoLogin -->
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+            <div id="panel-credenciales" class="flex gap-2">
+                <input type="text" id="db-url" placeholder="Supabase URL" class="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded text-slate-800 focus:outline-none focus:border-indigo-500 w-48 text-xs">
+                <input type="password" id="db-key" placeholder="Supabase Anon Key" class="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded text-slate-800 focus:outline-none focus:border-indigo-500 w-48 text-xs">
+                <button id="btn-conectar" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-1.5 rounded transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-plug"></i> Conectar
+                </button>
+            </div>
+            <div id="badge-autologin" class="hidden bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs px-3.5 py-1.5 rounded-full font-semibold flex items-center space-x-1.5">
+                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Acceso por Enlace Activo</span>
+            </div>
+            <div id="session-tag" class="bg-slate-100 border border-slate-200 text-indigo-600 text-xs px-2.5 py-1.5 rounded font-mono hidden">
+                —
+            </div>
         </div>
-        <div id="session-tag">—</div>
     </header>
 
-    <!-- MAIN -->
-    <div id="main">
-
-        <!-- SIDEBAR -->
-        <aside id="sidebar">
-
-            <!-- Specs -->
-            <div class="sidebar-section">
-                <div class="sidebar-label">Especificaciones</div>
-                <div id="spec-cards">
-                    <div class="spec-card empty" id="card-modelo">
-                        <span class="label">Modelo</span>
-                        <span class="value">—</span>
-                    </div>
-                    <div class="spec-card empty" id="card-carga">
-                        <span class="label">Carga máx./nivel</span>
-                        <span class="value">—</span>
-                    </div>
-                    <div class="spec-card empty" id="card-niveles">
-                        <span class="label">Niveles</span>
-                        <span class="value amber">—</span>
-                    </div>
+    <!-- Contenido Principal (Dashboard Dividido - Tema Claro) -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6">
+        
+        <!-- Panel Lateral Izquierdo: Metadatos del Diseño e Historial (4 Columnas) -->
+        <section class="lg:col-span-4 flex flex-col space-y-6">
+            
+            <!-- Tarjeta de Sincronización -->
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Estado de Sincronización</h2>
+                <div class="flex items-center justify-between">
+                    <span class="flex items-center text-sm">
+                        <span id="status-indicador" class="h-2.5 w-2.5 rounded-full bg-red-500 mr-2.5 animate-pulse"></span>
+                        <span id="status-texto" class="text-slate-600">Desconectado de Supabase</span>
+                    </span>
+                    <span id="badge-version" class="bg-slate-50 border border-slate-200 text-indigo-600 text-xs px-2.5 py-1 rounded font-mono hidden">
+                        v0
+                    </span>
                 </div>
             </div>
 
-            <!-- Component tree -->
-            <div class="sidebar-label" style="padding: 12px 16px 4px;">Componentes</div>
-            <div id="comp-list">
-                <p style="padding:12px 16px; color:var(--text-dim); font-size:11px;">Esperando diseño...</p>
-            </div>
+            <!-- Información del Rack Diseñado -->
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex-1 flex flex-col justify-between">
+                <div>
+                    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Especificaciones de Ensamble</h2>
+                    
+                    <div id="sin-datos" class="text-center py-12 text-slate-400 flex flex-col justify-center items-center">
+                        <i class="fa-solid fa-hourglass-start text-4xl mb-3 text-slate-300"></i>
+                        <p class="text-sm font-medium">Esperando diseño desde Telegram...</p>
+                        <p class="text-xs text-slate-400 mt-1">El modelo 3D aparecerá aquí automáticamente al ser calculado por la IA.</p>
+                    </div>
 
-            <!-- Console -->
-            <div id="console-wrap">
-                <div class="sidebar-label">Log</div>
-                <div id="console-box"></div>
-            </div>
+                    <div id="detalle-diseno" class="hidden space-y-5">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <span class="text-[9px] uppercase text-slate-400 block font-semibold">Tipo de Estructura</span>
+                                <span id="det-tipo" class="text-xs font-bold text-indigo-600">-</span>
+                            </div>
+                            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <span class="text-[9px] uppercase text-slate-400 block font-semibold">Capacidad por Nivel</span>
+                                <span id="det-carga" class="text-xs font-bold text-indigo-300">-</span>
+                            </div>
+                            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <span class="text-[9px] uppercase text-slate-400 block font-semibold">Niveles de Altura</span>
+                                <span id="det-niveles" class="text-xs font-bold text-indigo-600">-</span>
+                            </div>
+                            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <span class="text-[9px] uppercase text-slate-400 block font-semibold">Pasillo Maniobra</span>
+                                <span id="det-pasillo" class="text-xs font-bold text-indigo-600">-</span>
+                            </div>
+                        </div>
 
-        </aside>
+                        <!-- Comentarios de Ingeniería de la IA -->
+                        <div class="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            <span class="text-[9px] uppercase text-slate-400 block mb-1 font-semibold">Notas de Ingeniería CAD</span>
+                            <p id="det-comentarios" class="text-[11px] text-slate-600 italic leading-relaxed">-</p>
+                        </div>
 
-        <!-- VIEWPORT -->
-        <div id="viewport">
-            <div id="canvas-container"></div>
+                        <!-- Desglose de Componentes Físicos -->
+                        <div class="space-y-2">
+                            <span class="text-[9px] uppercase text-slate-500 block">Componentes de Fabricación</span>
+                            <div id="lista-componentes" class="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                                <!-- Inyectado de forma dinámica -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-            <!-- Splash shown when no credentials from URL -->
-            <div id="splash">
-                <div class="splash-icon"></div>
-                <h2>RACKBUILDER 3D</h2>
-                <p>El visor se activa automáticamente desde el enlace que envía el bot de Telegram.</p>
-                <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                    <div class="splash-step"><span class="num">1</span>Envía tu requerimiento al bot de Telegram</div>
-                    <div class="splash-step"><span class="num">2</span>El bot calcula y genera el diseño 3D</div>
-                    <div class="splash-step"><span class="num">3</span>Toca el enlace en el mensaje para abrir el visor</div>
+                <!-- Depurador de eventos en vivo -->
+                <div class="mt-4 pt-3 border-t border-slate-200">
+                    <span class="text-[9px] font-mono text-indigo-600 uppercase tracking-wider block mb-1.5">Consola de Eventos</span>
+                    <div id="console-log" class="text-[10px] font-mono text-slate-600 h-24 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded border border-slate-200">
+                        <p class="text-indigo-600">&rsaquo; Consola iniciada.</p>
+                    </div>
                 </div>
             </div>
+        </section>
 
-            <!-- Loading spinner (while fetching) -->
-            <div id="loading-overlay"><div class="spinner"></div></div>
-
-            <!-- Overlays -->
-            <div id="axis-info">
-                <span class="axis-x">X ancho</span>
-                <span class="axis-y">Y altura</span>
-                <span class="axis-z">Z prof.</span>
+        <!-- Panel Derecho: Visor 3D Interactivo (8 Columnas - Fondo Blanco) -->
+        <section class="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col min-h-[500px] relative">
+            <div class="absolute top-6 left-6 z-10 flex items-center space-x-2">
+                <span class="bg-white/90 border border-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-full shadow flex items-center">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
+                    Vista Interactiva 3D
+                </span>
+                <button id="btn-reset" class="bg-white/90 hover:bg-slate-50 text-xs px-3 py-1.5 rounded-full border border-slate-200 shadow transition flex items-center gap-1.5 text-slate-600">
+                    <i class="fa-solid fa-arrows-spin"></i> Reset Cámara
+                </button>
             </div>
-            <div id="version-badge">v—</div>
-            <div id="controls-hint">Orbitar · Scroll zoom · Click der. desplazar</div>
-        </div>
 
+            <!-- Contenedor del Renderizado de Three.js -->
+            <div id="canvas-container" class="flex-1 rounded-lg overflow-hidden bg-white border border-slate-100 shadow-inner">
+                <!-- Three.js Canvas se monta dinámicamente aquí -->
+            </div>
+            
+            <div class="mt-3 flex justify-between items-center text-xs text-slate-400 px-2 font-medium">
+                <span><i class="fa-solid fa-circle-info mr-1"></i> Arrastra para orbitar • Scroll para zoom • Clic derecho para desplazar</span>
+                <span id="render-stats" class="text-slate-500 font-mono">Componentes renderizados: 0</span>
+            </div>
+
+            <!-- Loading overlay -->
+            <div id="loading-overlay" class="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center z-20 hidden transition-opacity duration-300">
+                <div class="flex flex-col items-center gap-3">
+                    <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-indigo-600"></div>
+                    <span class="text-xs text-slate-600 font-mono">Construyendo modelo 3D...</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- NOTIFICACIONES TOAST EMULADAS -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-indigo-600 border border-indigo-400 text-white px-5 py-3 rounded-lg shadow-xl flex items-center space-x-3 transform translate-y-24 opacity-0 transition-all duration-300 z-50">
+        <i class="fa-solid fa-bell text-lg"></i>
+        <span id="toast-text" class="text-sm font-semibold"></span>
     </div>
-</div>
 
-<script>
-    // ─── Three.js globals ───────────────────────────────────────────────
-    let scene, camera, renderer, controls, group;
-    let supabaseClient = null;
-    let targetSessionId = null;
-    const container = document.getElementById('canvas-container');
+    <!-- SCRIPT DE INTEGRACIÓN Y GRÁFICOS 3D -->
+    <script>
+        // --- 1. CONFIGURACIÓN DEL SISTEMA 3D (THREE.JS - TEMA CLARO) ---
+        let scene, camera, renderer, controls, objectsGroup;
+        let supabaseClient = null;
+        let targetSessionId = null; // Variable global para sincronizar por id de sesión
+        let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
+        const container = document.getElementById('canvas-container');
+        const loader = new THREE.GLTFLoader();
 
-    // ─── Logging ────────────────────────────────────────────────────────
-    function log(msg, type = '') {
-        const box = document.getElementById('console-box');
-        const cls = type === 'err' ? 'err' : type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : '';
-        box.innerHTML += `<p class="${cls}">&rsaquo; ${msg}</p>`;
-        box.scrollTop = box.scrollHeight;
-        console.log(`[RB3D] ${msg}`);
-    }
-
-    // ─── Three.js init ───────────────────────────────────────────────────
-    function init3D() {
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0c10);
-        scene.fog = new THREE.Fog(0x0a0c10, 20, 60);
-
-        camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 100);
-        camera.position.set(5, 4, 9);
-
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(container.clientWidth || 900, container.clientHeight || 600);
-        container.appendChild(renderer.domElement);
-
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.06;
-        controls.minDistance = 2;
-        controls.maxDistance = 30;
-
-        group = new THREE.Group();
-        scene.add(group);
-
-        // Lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const key = new THREE.DirectionalLight(0xfff8e8, 1.0);
-        key.position.set(6, 12, 8); scene.add(key);
-        const fill = new THREE.DirectionalLight(0xe8f0ff, 0.3);
-        fill.position.set(-5, 3, -4); scene.add(fill);
-
-        // Grid
-        const grid = new THREE.GridHelper(24, 24, 0x1e2230, 0x141720);
-        scene.add(grid);
-
-        window.addEventListener('resize', onResize);
-        animate();
-        checarAutoLoginURL();
-    }
-
-    function onResize() {
-        const w = container.clientWidth, h = container.clientHeight;
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-        renderer.setSize(w, h);
-    }
-
-    function animate() {
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
-    }
-
-    // ─── Render rack ────────────────────────────────────────────────────
-    function renderRack(matriz) {
-        while (group.children.length) group.remove(group.children[0]);
-        if (!matriz) { log('Matriz vacía, nada que renderizar.', 'warn'); return; }
-
-        const marcos   = matriz.marcos   || [];
-        const vigas    = matriz.vigas    || [];
-        const mensulas = matriz.mensulas || [];
-        log(`Dibujando ${marcos.length} marcos · ${vigas.length} vigas · ${mensulas.length} ménsulas`, 'ok');
-
-        // Marcos — dark steel columns
-        marcos.forEach((m, i) => {
-            if (!m.posicion) { log(`Marco ${i}: sin posición`, 'err'); return; }
-            const geo = new THREE.BoxGeometry(0.08, 4.0, 0.9);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x1c2235, metalness: 0.7, roughness: 0.4 });
-            const mesh = new THREE.Mesh(geo, mat);
-            // Edges
-            const edges = new THREE.LineSegments(
-                new THREE.EdgesGeometry(geo),
-                new THREE.LineBasicMaterial({ color: 0x2d3a55 })
-            );
-            mesh.add(edges);
-            mesh.position.set(m.posicion.x, (m.posicion.y ?? 0) + 2.0, m.posicion.z ?? 0);
-            group.add(mesh);
-        });
-
-        // Vigas — amber horizontal beams
-        vigas.forEach((v, i) => {
-            if (!v.posicion) { log(`Viga ${i}: sin posición`, 'err'); return; }
-            const geo = new THREE.BoxGeometry(2.4, 0.10, 0.05);
-            const mat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.3, roughness: 0.6 });
-            const mesh = new THREE.Mesh(geo, mat);
-            const edges = new THREE.LineSegments(
-                new THREE.EdgesGeometry(geo),
-                new THREE.LineBasicMaterial({ color: 0xfbbf24 })
-            );
-            mesh.add(edges);
-            mesh.position.set(v.posicion.x ?? 0, v.posicion.y, v.posicion.z ?? 0);
-            group.add(mesh);
-        });
-
-        // Ménsulas — small brackets
-        mensulas.forEach((men, i) => {
-            if (!men.posicion) { log(`Ménsula ${i}: sin posición`, 'err'); return; }
-            const geo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-            const mat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.5, roughness: 0.5 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(men.posicion.x, men.posicion.y, men.posicion.z ?? 0);
-            group.add(mesh);
-        });
-
-        // Auto-frame camera
-        const box = new THREE.Box3().setFromObject(group);
-        const center = box.getCenter(new THREE.Vector3());
-        const size   = box.getSize(new THREE.Vector3()).length();
-        controls.target.copy(center);
-        camera.position.set(center.x + size * 0.6, center.y + size * 0.4, center.z + size * 0.8);
-        controls.update();
-    }
-
-    // ─── Sidebar update ─────────────────────────────────────────────────
-    function updateSidebar(jsonDiseno, version) {
-        const setCard = (id, value, amber = false) => {
-            const card = document.getElementById(id);
-            const v = card.querySelector('.value');
-            v.textContent = value || '—';
-            card.classList.toggle('empty', !value);
-            if (amber) v.classList.add('amber'); else v.classList.remove('amber');
-        };
-        setCard('card-modelo', jsonDiseno.tipo_rack);
-        setCard('card-carga', jsonDiseno.peso_maximo_por_nivel_kg ? jsonDiseno.peso_maximo_por_nivel_kg + ' kg' : null);
-        setCard('card-niveles', jsonDiseno.numero_niveles, true);
-
-        // Version badge
-        const vb = document.getElementById('version-badge');
-        vb.textContent = `v${version}`;
-        vb.classList.add('visible');
-
-        // Component tree
-        const matrix = jsonDiseno.marcos
-            ? jsonDiseno
-            : (jsonDiseno.matriz_ensamble_3d ?? jsonDiseno);
-
-        const marcos   = matrix.marcos   || [];
-        const vigas    = matrix.vigas    || [];
-        const mensulas = matrix.mensulas || [];
-
-        const groups = [
-            { label: 'Marcos', items: marcos,   color: '#3b82f6' },
-            { label: 'Vigas',  items: vigas,    color: '#f59e0b' },
-            { label: 'Ménsulas', items: mensulas, color: '#64748b' }
-        ];
-
-        let html = '';
-        groups.forEach(g => {
-            if (!g.items.length) return;
-            html += `<div class="comp-group">
-                <div class="comp-group-header">${g.label}<span class="count">${g.items.length}</span></div>`;
-            g.items.forEach(item => {
-                const pos = item.posicion;
-                const posStr = pos ? `${pos.x}, ${pos.y}, ${pos.z ?? 0}` : '—';
-                const detail = item.nivel != null ? `Nivel ${item.nivel}${item.lado ? ' · ' + item.lado : ''}` : '';
-                html += `<div class="comp-item">
-                    <span class="comp-sku" style="color:${g.color}">${item.sku || '—'}</span>
-                    <span class="comp-pos">${posStr}</span>
-                    ${detail ? `<span class="comp-detail">${detail}</span>` : ''}
-                </div>`;
-            });
-            html += `</div>`;
-        });
-        document.getElementById('comp-list').innerHTML = html || '<p style="padding:12px 16px;color:var(--text-dim);font-size:11px;">Sin componentes</p>';
-    }
-
-    // ─── Supabase fetch ──────────────────────────────────────────────────
-    async function checarNuevasCotizaciones() {
-        if (!supabaseClient) return;
-        document.getElementById('loading-overlay').classList.add('show');
-        try {
-            let query = supabaseClient
-                .from('disenos_racks').select('*')
-                .order('version_actual', { ascending: false });
-            if (targetSessionId) query = query.eq('session_id', targetSessionId);
-            const { data, error } = await query.limit(1);
-
-            if (error) { log('Error Supabase: ' + error.message, 'err'); return; }
-            if (!data || !data.length) { log('Sin diseños en BD aún.'); return; }
-
-            const fila = data[0];
-            log(`Diseño v${fila.version_actual} · sesión ${fila.session_id}`);
-
-            let jsonDiseno;
-            try {
-                jsonDiseno = typeof fila.matriz_ensamble_3d === 'string'
-                    ? JSON.parse(fila.matriz_ensamble_3d)
-                    : fila.matriz_ensamble_3d;
-            } catch(e) { log('Parse error: ' + e.message, 'err'); return; }
-            if (!jsonDiseno) { log('matriz_ensamble_3d vacía.', 'err'); return; }
-
-            // Normalize schema (raíz o anidado)
-            const matrizRender = jsonDiseno.marcos
-                ? jsonDiseno
-                : (jsonDiseno.matriz_ensamble_3d ?? jsonDiseno);
-
-            updateSidebar(jsonDiseno, fila.version_actual);
-            renderRack(matrizRender);
-            hideSplash();
-
-        } catch(e) { log('Excepción: ' + e.message, 'err'); }
-        finally { document.getElementById('loading-overlay').classList.remove('show'); }
-    }
-
-    // ─── Auto-login from URL params ──────────────────────────────────────
-    function checarAutoLoginURL() {
-        const p = new URLSearchParams(window.location.search);
-        const rawUrl = p.get('sb_url');
-        const rawKey = p.get('sb_key');
-        if (rawUrl && rawKey) {
-            log('Enlace autenticado detectado.', 'ok');
-            targetSessionId = p.get('session_id') || null;
-            conectarSupabase(decodeURIComponent(rawUrl), decodeURIComponent(rawKey));
-        } else {
-            log('Esperando enlace del bot...');
+        function debugLog(mensaje, esError = false) {
+            const consola = document.getElementById('console-log');
+            const color = esError ? 'text-red-500 font-semibold' : 'text-slate-600';
+            consola.innerHTML += `<p class="${color}">&rsaquo; ${mensaje}</p>`;
+            consola.scrollTop = consola.scrollHeight;
+            console.log(`[RB3D] ${mensaje}`);
         }
-    }
 
-    // ─── Connect Supabase ────────────────────────────────────────────────
-    function conectarSupabase(url, key) {
-        try {
-            supabaseClient = supabase.createClient(url, key);
+        function init3D() {
+            // Inicializar Escena y Neblina (Tema Claro: Blanco/Gris suave)
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf8fafc); // Fondo slate-50
+            scene.fog = new THREE.FogExp2(0xf8fafc, 0.05);
 
-            // Topbar status
-            document.getElementById('conn-dot').classList.add('on');
-            document.getElementById('conn-label').textContent = 'Conectado';
+            // Inicializar Cámara
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(5, 4, 9);
 
-            // Session tag
-            if (targetSessionId) {
-                const tag = document.getElementById('session-tag');
-                tag.textContent = 'sesión · ' + targetSessionId.slice(-6);
-                tag.classList.add('visible');
+            // Inicializar Renderizador con Antialiasing para máxima calidad visual
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Controles de Órbita
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01; // Evita atravesar el suelo
+            controls.minDistance = 2;
+            controls.maxDistance = 50;
+
+            // Grupo de Modelos
+            objectsGroup = new THREE.Group();
+            scene.add(objectsGroup);
+
+            // Iluminación Brillante y Limpia (Estudio Fotográfico Claro)
+            scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+
+            const dirLight1 = new THREE.DirectionalLight(0xfffdf4, 1.3);
+            dirLight1.position.set(15, 25, 10);
+            dirLight1.castShadow = true;
+            dirLight1.shadow.mapSize.width = 2048;
+            dirLight1.shadow.mapSize.height = 2048;
+            scene.add(dirLight1);
+
+            const dirLight2 = new THREE.DirectionalLight(0x3b82f6, 0.35); // Luz de acento sutil
+            dirLight2.position.set(-15, 10, -10);
+            scene.add(dirLight2);
+
+            // Suelo con Grid industrial de referencia claro (Gris suave y azul cobalto)
+            const gridHelper = new THREE.GridHelper(30, 30, 0xcbd5e1, 0xe2e8f0);
+            gridHelper.position.y = -0.01; // Ligeramente abajo para evitar z-fighting
+            scene.add(gridHelper);
+
+            // Suelo físico receptor de sombras en color neutro claro
+            const floorGeo = new THREE.PlaneGeometry(50, 50);
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0xf1f5f9, // slate-100 para recibir sombras nítidas
+                roughness: 0.9, 
+                metalness: 0.1 
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Lanzar animación loop
+            animate();
+            debugLog("Motor gráfico 3D iniciado.");
+            checarAutoLoginURL();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        // Función global para redimensionar el canvas de forma adaptativa
+        function resizeCanvas() {
+            if (!camera || !renderer) return;
+            const w = container.clientWidth || 900;
+            const h = container.clientHeight || 600;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        // Manejo adaptativo de ventanas
+        window.addEventListener('resize', resizeCanvas);
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if (camera && controls) {
+                camera.position.set(5, 4, 9);
+                enfocarEscena();
+            }
+        });
+
+
+        // --- 2. CARGA DE MODELOS PUROS (SIN ENSAMBLE PROCEDURAL DEL FRONTEND) ---
+        function renderComponente(comp, tipo) {
+            // Colores oscuros de contraste para las geometrías de fallback (mejor legibles en fondo blanco)
+            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : 0x4f46e5);
+            
+            // Normalizar el SKU para mapear con precisión el catálogo
+            const normalizedSku = comp.sku ? comp.sku.trim().toUpperCase() : "";
+            const piezaData = catalogoCache.get(normalizedSku);
+            
+            const posX = parseFloat(comp.posicion?.x ?? 0);
+            const posY = parseFloat(comp.posicion?.y ?? 0);
+            const posZ = parseFloat(comp.posicion?.z ?? 0);
+
+            // DIAGNÓSTICOS EN CONSOLA VISUAL:
+            if (!piezaData) {
+                debugLog(`[Catálogo] El SKU "${comp.sku}" no se encontró en Supabase. Renderizando fallback geométrico.`, true);
+                renderizarFallback(comp, tipo, materialColor, null);
+                return;
             }
 
-            log('Conexión establecida.', 'ok');
-            checarNuevasCotizaciones();
+            if (!piezaData.url_modelo_glb || piezaData.url_modelo_glb.trim() === "") {
+                debugLog(`[Catálogo] El SKU "${comp.sku}" está en el catálogo pero no tiene URL de modelo .glb. Dibujando fallback geométrico.`, false);
+                renderizarFallback(comp, tipo, materialColor, piezaData);
+                return;
+            }
 
-            // Realtime
-            supabaseClient.channel('cambios_disenos')
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'disenos_racks' }, payload => {
-                    log('Nuevo diseño recibido (Realtime).', 'warn');
-                    if (!targetSessionId || payload.new.session_id === targetSessionId) {
-                        checarNuevasCotizaciones();
+            // Si la pieza existe y tiene una URL de modelo GLB válida en Supabase, la renderizamos de forma limpia
+            if (piezaData && piezaData.url_modelo_glb) {
+                let urlModelo = piezaData.url_modelo_glb.trim();
+                
+                // NORMALIZACIÓN DE URL DE RED: 
+                try {
+                    const decodedUrl = decodeURIComponent(urlModelo);
+                    urlModelo = encodeURI(decodedUrl)
+                        .replace(/\(/g, '%28')
+                        .replace(/\)/g, '%29');
+                } catch(e) {
+                    urlModelo = urlModelo.replace(/ /g, '%20');
+                }
+
+                debugLog(`Cargando modelo real para ${comp.sku}...`);
+                loader.load(urlModelo, 
+                    (gltf) => {
+                        const modelo = gltf.scene;
+                        
+                        // Habilitar sombras para todo el modelo
+                        modelo.traverse((child) => {
+                            if (child.isMesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+
+                        // CARGA DIRECTA Y PURA:
+                        // No alteramos el pivote de la escena original para respetar la escala y alineación del CAD de origen.
+                        modelo.position.set(posX, posY, posZ);
+
+                        if (comp.rotacion) {
+                            modelo.rotation.set(
+                                parseFloat(comp.rotacion.x ?? 0),
+                                parseFloat(comp.rotacion.y ?? 0),
+                                parseFloat(comp.rotacion.z ?? 0)
+                            );
+                        }
+
+                        objectsGroup.add(modelo);
+                        debugLog(`Modelo ${comp.sku} montado correctamente.`, "ok");
+                        actualizarContadorPiezas();
+                        enfocarEscena();
+                    },
+                    undefined,
+                    (error) => {
+                        debugLog(`Fallo al cargar GLB para ${comp.sku}. Usando fallback geométrico.`, true);
+                        renderizarFallback(comp, tipo, materialColor, piezaData);
                     }
-                })
-                .subscribe(status => log('Canal Realtime: ' + status));
-
-        } catch(e) {
-            log('Error de conexión: ' + e.message, 'err');
+                );
+            } else {
+                renderizarFallback(comp, tipo, materialColor, piezaData);
+            }
         }
-    }
 
-    function hideSplash() {
-        document.getElementById('splash').classList.add('hidden');
-    }
+        // Renderizado simplificado de respaldo: Muestra una caja con las medidas técnicas puras sin intentar armar componentes de juguete.
+        function renderizarFallback(comp, tipo, colorHex, piezaData) {
+            // Dimensiones de precisión definidas en base de datos
+            let largo = parseFloat(piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.12));
+            let alto = parseFloat(piezaData?.altura_metros ?? (tipo === 'marco' ? 4.0 : 0.12));
+            let prof = parseFloat(piezaData?.profundidad_metros ?? (tipo === 'marco' ? 1.0 : 0.08));
 
-    window.onload = init3D;
-</script>
+            const posX = parseFloat(comp.posicion?.x ?? 0);
+            const posY = parseFloat(comp.posicion?.y ?? 0);
+            const posZ = parseFloat(comp.posicion?.z ?? 0);
+
+            // Representación técnica de volumen mediante un prisma regular semitransparente
+            const geometry = new THREE.BoxGeometry(largo, alto, prof);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: colorHex, 
+                roughness: 0.5, 
+                metalness: 0.2,
+                transparent: true,
+                opacity: 0.65
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(posX, posY + (alto / 2), posZ); // Centrado en su altura respecto al suelo cartesiano
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            objectsGroup.add(mesh);
+
+            actualizarContadorPiezas();
+            enfocarEscena();
+        }
+
+        function actualizarContadorPiezas() {
+            let total = 0;
+            objectsGroup.traverse((child) => {
+                if (child.isMesh) total++;
+            });
+            document.getElementById('render-stats').innerText = `Componentes renderizados: ${total}`;
+        }
+
+        function enfocarEscena() {
+            if (objectsGroup.children.length === 0) return;
+            const bbox = new THREE.Box3().setFromObject(objectsGroup);
+            const center = new THREE.Vector3();
+            bbox.getCenter(center);
+            
+            controls.target.copy(center);
+            controls.update();
+        }
+
+
+        // --- 3. CONEXIÓN EN TIEMPO REAL CON SUPABASE ---
+        async function descargarCatalogoCompleto() {
+            if (!supabaseClient) return;
+            try {
+                debugLog("Sincronizando catálogo de piezas desde la base de datos...");
+                const { data, error } = await supabaseClient
+                    .from('catalogo_piezas')
+                    .select('codigo_sku, nombre, tipo, longitud_metros, altura_metros, profundidad_metros, url_modelo_glb');
+
+                if (error) throw error;
+
+                catalogoCache.clear();
+                if (data) {
+                    data.forEach(p => {
+                        if (p.codigo_sku) {
+                            const normKey = p.codigo_sku.trim().toUpperCase();
+                            catalogoCache.set(normKey, p);
+                        }
+                    });
+                    debugLog(`Catálogo cargado: ${catalogoCache.size} piezas indexadas en caché.`, "ok");
+                }
+            } catch(e) {
+                debugLog(`Fallo al descargar catálogo: ${e.message}. Se usará geometría modular fallback.`, true);
+            }
+        }
+
+        async function cargarUltimoDisenoDB() {
+            if (!supabaseClient) return;
+            
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            document.getElementById('loading-overlay').classList.add('show');
+            try {
+                let query = supabaseClient
+                    .from('disenos_racks')
+                    .select('*')
+                    .order('version_actual', { ascending: false });
+
+                if (targetSessionId) {
+                    query = query.eq('session_id', targetSessionId);
+                }
+
+                const { data, error } = await query.limit(1);
+
+                if (error) throw error;
+
+                if (data && data.length > 0) {
+                    procesarNuevoDiseno(data[0]);
+                } else {
+                    debugLog("La tabla disenos_racks se encuentra vacía para esta sesión.");
+                }
+            } catch(err) {
+                debugLog(`Error de renderizado: ${err.message}`, true);
+            } finally {
+                document.getElementById('loading-overlay').classList.remove('show');
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+
+        function procesarNuevoDiseno(registro) {
+            const variables = registro.matriz_ensamble_3d;
+            if (!variables) return;
+
+            // Ocultar sección vacía y mostrar metadatos
+            document.getElementById('sin-datos').classList.add('hidden');
+            const det = document.getElementById('detalle-diseno');
+            det.classList.remove('hidden');
+
+            const badge = document.getElementById('badge-version');
+            badge.innerText = `v${registro.version_actual}`;
+            badge.classList.remove('hidden');
+
+            // Renderizar textos
+            document.getElementById('det-tipo').innerText = variables.tipo_rack || "N/D";
+            document.getElementById('det-carga').innerText = variables.peso_maximo_por_nivel_kg ? `${variables.peso_maximo_por_nivel_kg} kg` : "N/D";
+            document.getElementById('det-niveles').innerText = variables.numero_niveles || 0;
+            document.getElementById('det-pasillo').innerText = variables.ancho_pasillo_maniobra_metros ? `${variables.ancho_pasillo_maniobra_metros} m` : "N/E";
+            document.getElementById('det-comentarios').innerText = variables.comentarios_adicionales || "Sin comentarios técnicos.";
+
+            // Limpiar la escena de Three.js antes de pintar el nuevo diseño
+            while(objectsGroup.children.length > 0){ 
+                objectsGroup.remove(objectsGroup.children[0]); 
+            }
+
+            const matriz = variables.matriz_ensamble_3d ? variables.matriz_ensamble_3d : variables;
+            if (!matriz) return;
+
+            const listaComponentes = document.getElementById('lista-componentes');
+            listaComponentes.innerHTML = ''; // Limpiar lista visual
+
+            // Recorrer y renderizar marcos
+            if (matriz.marcos) {
+                matriz.marcos.forEach(m => {
+                    renderComponente(m, 'marco');
+                    agregarAListaVisual(m.sku, 'Marco Lateral');
+                });
+            }
+
+            // Recorrer y renderizar vigas
+            if (matriz.vigas) {
+                matriz.vigas.forEach(v => {
+                    renderComponente(v, 'viga');
+                    agregarAListaVisual(v.sku, `Viga de Carga (Nivel ${v.nivel})`);
+                });
+            }
+
+            // Recorrer y renderizar ménsulas
+            if (matriz.mensulas) {
+                matriz.mensulas.forEach(me => {
+                    renderComponente(me, 'mensula');
+                    agregarAListaVisual(me.sku, `Ménsula (${me.lado === 'izq' ? 'Izquierda' : 'Derecha'} - Nivel ${me.nivel})`);
+                });
+            }
+        }
+
+        function agregarAListaVisual(sku, descripcion) {
+            const lista = document.getElementById('lista-componentes');
+            const item = document.createElement('div');
+            item.className = "flex justify-between items-center bg-slate-50 px-3 py-1.5 rounded border border-slate-200 text-xs shadow-sm";
+            item.innerHTML = `
+                <span class="font-mono text-indigo-600 font-bold">${sku}</span>
+                <span class="text-slate-500 text-[10px]">${descripcion}</span>
+            `;
+            lista.appendChild(item);
+        }
+
+        // --- AUTOLOGIN & CREDENCIALES ---
+        function checarAutoLoginURL() {
+            // Soporta parámetros tanto en el formato query clásico como después del Hash (#) debido a manejadores de Webview móviles
+            const searchParams = new URLSearchParams(window.location.search);
+            let rawUrl = searchParams.get('sb_url');
+            let rawKey = searchParams.get('sb_key');
+            let session = searchParams.get('session_id');
+
+            if (!rawUrl || !rawKey) {
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                rawUrl = rawUrl || hashParams.get('sb_url');
+                rawKey = rawKey || hashParams.get('sb_key');
+                session = session || hashParams.get('session_id');
+            }
+
+            if (rawUrl && rawKey) {
+                const url = decodeURIComponent(rawUrl);
+                const key = decodeURIComponent(rawKey);
+                
+                if (session) {
+                    targetSessionId = session;
+                    const sessionTag = document.getElementById('session-tag');
+                    if (sessionTag) {
+                        sessionTag.innerText = `Sesión: ${session}`;
+                        sessionTag.classList.remove('hidden');
+                    }
+                }
+
+                const panelCredenciales = document.getElementById('panel-credenciales');
+                if (panelCredenciales) panelCredenciales.classList.add('hidden');
+
+                const badgeAutologin = document.getElementById('badge-autologin');
+                if (badgeAutologin) badgeAutologin.classList.remove('hidden');
+
+                // Ocultar sección vacía de bienvenida si existe un splash
+                const splash = document.getElementById('splash');
+                if (splash) splash.classList.add('hidden');
+                
+                conectarSupabase(url, key);
+            }
+        }
+
+        async function conectarSupabase(url, key) {
+            try {
+                supabaseClient = supabase.createClient(url, key);
+                
+                // Actualizar interfaz a Conectado (Tema Claro)
+                const ind = document.getElementById('status-indicador');
+                if (ind) {
+                    ind.classList.remove('bg-red-500');
+                    ind.classList.add('bg-emerald-500');
+                }
+                const statusTexto = document.getElementById('status-texto');
+                if (statusTexto) {
+                    statusTexto.innerText = "Sincronizado con Supabase";
+                    statusTexto.className = "text-emerald-700 font-medium text-sm";
+                }
+                
+                mostrarToast("Conexión establecida con éxito");
+                debugLog("Conexión establecida con éxito a Supabase.");
+
+                // 1. Descargar catálogo para mapear modelos .glb
+                await descargarCatalogoCompleto();
+
+                // 2. Cargar el último diseño inmediatamente
+                resizeCanvas();
+                await cargarUltimoDisenoDB();
+
+                // 3. Suscribirse a inserciones en tiempo real sobre la tabla "disenos_racks"
+                supabaseClient
+                    .channel('cambios-disenos')
+                    .on('postgres_changes', { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'disenos_racks' 
+                    }, payload => {
+                        if (targetSessionId && payload.new.session_id !== targetSessionId) return;
+                        debugLog("Nuevo diseño detectado en tiempo real.");
+                        procesarNuevoDiseno(payload.new);
+                        mostrarToast(`¡Nuevo diseño sincronizado! Versión v${payload.new.version_actual}`);
+                    })
+                    .subscribe();
+
+            } catch (err) {
+                debugLog(`Error al inicializar Supabase: ${err.message}`, true);
+                mostrarToast(`Error al inicializar Supabase: ${err.message}`);
+            }
+        }
+
+        document.getElementById('btn-conectar').addEventListener('click', () => {
+            const url = document.getElementById('db-url').value.trim();
+            const key = document.getElementById('db-key').value.trim();
+            
+            if (!url || !key) {
+                mostrarToast("Por favor introduce la URL y Anon Key válidas.");
+                return;
+            }
+            const splash = document.getElementById('splash');
+            if (splash) splash.classList.add('hidden');
+            conectarSupabase(url, key);
+        });
+
+        // --- SISTEMA AUXILIAR DE MENSAJES TOAST ---
+        function mostrarToast(mensaje) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            if (toast && toastText) {
+                toastText.innerText = mensaje;
+                
+                toast.classList.remove('translate-y-24', 'opacity-0');
+                toast.classList.add('translate-y-0', 'opacity-100');
+
+                setTimeout(() => {
+                    toast.classList.remove('translate-y-0', 'opacity-100');
+                    toast.classList.add('translate-y-24', 'opacity-0');
+                }, 3500);
+            }
+        }
+
+        window.onload = init3D;
+    </script>
 </body>
 </html>
