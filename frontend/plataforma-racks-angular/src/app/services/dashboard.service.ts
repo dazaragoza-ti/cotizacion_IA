@@ -18,11 +18,15 @@ export interface StorageFileItem {
   size: number;
   type: string;
   url: string;
+  estimatedCompressedSize?: number;
+  compressionRatio?: number;
 }
 
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
   private supabase: SupabaseClient | null = null;
+  private currentSupabaseUrl = '';
+  private currentSupabaseKey = '';
   private readonly backendBaseUrl = 'http://localhost:8000';
 
   setConnection(url: string, key: string): void {
@@ -33,6 +37,12 @@ export class DashboardService {
       throw new Error('Falta la URL o la anon key de Supabase');
     }
 
+    if (this.supabase && this.currentSupabaseUrl === supabaseUrl && this.currentSupabaseKey === supabaseKey) {
+      return;
+    }
+
+    this.currentSupabaseUrl = supabaseUrl;
+    this.currentSupabaseKey = supabaseKey;
     this.supabase = createClient(supabaseUrl, supabaseKey);
   }
 
@@ -71,16 +81,69 @@ export class DashboardService {
     if (!bucket) {
       return [];
     }
-
     const params = new URLSearchParams({ bucket, folder });
-    const response = await fetch(`${this.backendBaseUrl}/storage/files?${params.toString()}`);
+    const url = `${this.backendBaseUrl}/storage/files?${params.toString()}`;
+    console.log('DashboardService.listStorageFiles requesting', url);
+    const response = await fetch(url);
 
     if (!response.ok) {
       const detail = await response.text();
+      console.error('DashboardService.listStorageFiles failed', { url, status: response.status, detail });
       throw new Error(detail || 'No se pudieron cargar los archivos desde Storage');
     }
 
     const payload = await response.json() as { files?: StorageFileItem[] };
-    return (payload.files ?? []).sort((a, b) => a.name.localeCompare(b.name));
+    console.log('DashboardService.listStorageFiles payload files_count', (payload.files || []).length);
+    return (payload.files ?? [])
+      .filter((file) => /\.(glb|gltf)$/i.test(file.name))
+      .map((file) => {
+        const size = Number(file.size ?? 0);
+        const compressedSize = size > 0 ? Math.floor(size * 0.22) : 0;
+        const ratio = size > 0 ? Number(((size - compressedSize) / size * 100).toFixed(1)) : 0;
+        return {
+          ...file,
+          size,
+          estimatedCompressedSize: compressedSize,
+          compressionRatio: ratio,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async replaceStorageFile(bucket: string, path: string, file: File): Promise<{ size: number }> {
+    const form = new FormData();
+    form.append('bucket', bucket);
+    form.append('path', path);
+    form.append('file', file);
+
+    const response = await fetch(`${this.backendBaseUrl}/storage/files/replace`, {
+      method: 'POST',
+      body: form
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || 'No se pudo reemplazar el archivo en Storage');
+    }
+
+    return await response.json() as { size: number };
+  }
+
+  async optimizeStorageFile(bucket: string, path: string): Promise<{ original_size: number; compressed_size: number }> {
+    const form = new FormData();
+    form.append('bucket', bucket);
+    form.append('path', path);
+
+    const response = await fetch(`${this.backendBaseUrl}/storage/files/optimize`, {
+      method: 'POST',
+      body: form
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || 'No se pudo optimizar el archivo en el servidor');
+    }
+
+    return await response.json() as { original_size: number; compressed_size: number };
   }
 }

@@ -142,20 +142,68 @@
             <h2>Compresor Draco CAD & Registro Directo</h2>
             <p>Modelos 3D disponibles en el bucket de Supabase para compresión y gestión.</p>
           </div>
-        </div>
-        <div class="file-list" *ngIf="dracoModels.length; else emptyModels">
-          <a class="file-card" *ngFor="let model of dracoModels" [href]="model.url" target="_blank" rel="noopener noreferrer">
-            <div class="file-title">{{ model.name }}</div>
-            <div class="file-meta">{{ model.bucket }} / {{ model.folder }}</div>
-            <div class="file-meta">{{ model.type }}</div>
-          </a>
-        </div>
-        <ng-template #emptyModels>
-          <div class="empty-state">
-            <i class="fa-solid fa-file-contract"></i>
-            <p>No hay modelos 3D disponibles aún en el bucket indicado.</p>
+          <div>
+            <button type="button" class="refresh-btn" (click)="forceReloadModels()">Forzar recarga</button>
           </div>
-        </ng-template>
+        </div>
+
+        <section class="panel-card mb-4">
+          <div class="section-title">
+            <h3>Modelos 3D en Supabase</h3>
+            <span>Archivos cargados para compresión y revisión</span>
+          </div>
+          <div class="file-list" *ngIf="dracoModels.length; else emptyModels">
+            <div class="file-card" *ngFor="let model of dracoModels">
+              <div class="file-heading">
+                <div>
+                  <div class="file-title">{{ model.name }}</div>
+                  <div class="file-meta">{{ model.bucket }} / {{ model.folder || 'root' }}</div>
+                </div>
+                <span class="file-badge">{{ model.compressionRatio }}% reducción</span>
+              </div>
+              <div class="file-details-grid">
+                <span class="file-detail-item">Tipo: {{ model.type }}</span>
+                <span class="file-detail-item">Peso: {{ formatBytes(model.size) }}</span>
+                <span class="file-detail-item">Estimado Draco: {{ formatBytes(model.estimatedCompressedSize ?? 0) }}</span>
+              </div>
+              <div class="file-actions">
+                <a class="button outline" [href]="model.url" target="_blank" rel="noopener noreferrer">Abrir</a>
+              <button type="button" class="button secondary" [disabled]="isReplacing" (click)="autoOptimizeModel(model)">Optimizar automáticamente</button>
+              </div>
+            </div>
+          </div>
+          <!-- Debug: mostrar contenido de dracoModels para diagnosticar render -->
+          <div class="panel-card" *ngIf="activeModule === 'draco'">
+            <div class="section-title">
+              <h4>Debug: modelos en memoria (dracoModels)</h4>
+            </div>
+            <div style="max-height:200px; overflow:auto; background:#fff; border:1px solid #e2e8f0; padding:8px; font-size:12px;">
+              <div><strong>count:</strong> {{ dracoModels.length }}</div>
+              <pre style="white-space:pre-wrap;">{{ dracoModels | json }}</pre>
+            </div>
+          </div>
+
+          <div class="optimization-status" *ngIf="isReplacing || replacementMessage">
+            <p *ngIf="isReplacing" class="status-busy">Optimización en curso…</p>
+            <p *ngIf="replacementMessage && !isReplacing" class="status-message">{{ replacementMessage }}</p>
+          </div>
+          <ng-template #emptyModels>
+            <div class="empty-state">
+              <i class="fa-solid fa-file-contract"></i>
+              <p>No hay modelos 3D disponibles aún en el bucket indicado.</p>
+            </div>
+          </ng-template>
+        </section>
+
+        <div class="module-header">
+          <div>
+            <h2>Registrar nuevo modelo</h2>
+            <p>Sube un archivo `.glb` o `.gltf` y regístralo en Supabase.</p>
+          </div>
+        </div>
+        <div class="upload-instructions panel-card">
+          <p class="text-sm">Usa el panel de modelo 3D existente para revisar archivos cargados. El formulario de subida actual aparece en el HTML principal del proyecto.</p>
+        </div>
       </div>
     </section>
   </main>

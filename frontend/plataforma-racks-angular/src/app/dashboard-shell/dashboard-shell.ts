@@ -1,7 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef, NgZone } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DashboardService, StorageFileItem } from '../services/dashboard.service';
+// Server-side compression: no client-side GLTF/Draco transforms needed
 
 type ModuleKey = 'analiticas' | 'alimentar' | 'draco';
 
@@ -24,8 +25,15 @@ export class DashboardShellComponent implements OnInit {
   summaryItems: Array<{ label: string; value: string }> = [];
   aiDocuments: StorageFileItem[] = [];
   dracoModels: StorageFileItem[] = [];
+  selectedModelForReplace: StorageFileItem | null = null;
+  replacementFile: File | null = null;
+  replacementMessage = '';
+  isReplacing = false;
+  private readonly dracoEncoderPath = 'https://www.gstatic.com/draco/versioned/decoders/1.4.1/';
 
-  constructor(private dashboardService: DashboardService) {}
+  isLoadingStorage = false;
+
+  constructor(private dashboardService: DashboardService, private cdr: ChangeDetectorRef, private ngZone: NgZone) {}
 
   ngOnInit(): void {
     const searchParams = new URLSearchParams(window.location.search);
@@ -52,9 +60,15 @@ export class DashboardShellComponent implements OnInit {
       localStorage.setItem('sb_url', this.supabaseUrl);
       localStorage.setItem('sb_key', this.supabaseKey);
       await this.loadMetrics();
-      await this.loadStorageContent();
       this.connected = true;
       this.connectionText = 'Conexión Activa';
+
+      try {
+        await this.loadStorageContent();
+      } catch (storageError) {
+        console.warn('Conexión establecida, pero no se pudo cargar Storage:', storageError);
+        this.activity.push('Conexión activa. No se pudieron cargar los archivos de Storage.');
+      }
     } catch (error) {
       console.error('No se pudo conectar a Supabase', error);
       this.connected = false;
@@ -113,24 +127,194 @@ export class DashboardShellComponent implements OnInit {
   }
 
   async loadStorageContent(): Promise<void> {
+    if (this.isLoadingStorage) {
+      console.log('loadStorageContent: ya está en curso, ignorando llamada concurrente');
+      return;
+    }
+
+    this.isLoadingStorage = true;
     try {
-      const [quotesFiles, pricesFiles, modelFiles] = await Promise.all([
+      console.log('loadStorageContent: solicitando listados al backend...');
+      const [quotesFiles, pricesFiles, modelFiles, rootModelFiles] = await Promise.all([
         this.dashboardService.listStorageFiles('cotizaciones', 'Racks'),
         this.dashboardService.listStorageFiles('precios unitarios', 'productos'),
-        this.dashboardService.listStorageFiles('modelos', 'modelos 3d de racks')
+        this.dashboardService.listStorageFiles('modelos', 'modelos 3d de racks'),
+        this.dashboardService.listStorageFiles('modelos', '')
       ]);
+      console.log('loadStorageContent: responses', {
+        quotes: quotesFiles?.length ?? 0,
+        prices: pricesFiles?.length ?? 0,
+        models: modelFiles?.length ?? 0,
+        rootModels: rootModelFiles?.length ?? 0
+      });
 
-      this.aiDocuments = [...quotesFiles, ...pricesFiles].sort((a, b) => a.name.localeCompare(b.name));
-      this.dracoModels = modelFiles.sort((a, b) => a.name.localeCompare(b.name));
+      const uniqueModelFiles = [...modelFiles, ...rootModelFiles].filter((item, index, array) =>
+        index === array.findIndex((candidate) => candidate.path === item.path)
+      );
+
+      // Asegurar que la actualización de arrays se ejecute dentro de la zona de Angular
+      this.ngZone.run(() => {
+        this.aiDocuments = [...quotesFiles, ...pricesFiles].sort((a, b) => a.name.localeCompare(b.name));
+        this.dracoModels = uniqueModelFiles.sort((a, b) => a.name.localeCompare(b.name));
+        try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+      });
     } catch (error) {
       console.warn('No se pudieron cargar los archivos desde Supabase Storage', error);
-      this.aiDocuments = [];
-      this.dracoModels = [];
+      console.error('loadStorageContent error detalle:', error);
+      this.ngZone.run(() => {
+        if (!this.aiDocuments.length) {
+          this.aiDocuments = [];
+        }
+        if (!this.dracoModels.length) {
+          this.dracoModels = [];
+        }
+        this.activity.push('No se pudieron cargar los archivos de Storage en el módulo activo.');
+        try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+      });
+    } finally {
+      this.isLoadingStorage = false;
     }
   }
 
-  switchModule(target: ModuleKey): void {
+  async switchModule(target: ModuleKey): Promise<void> {
     this.activeModule = target;
+
+    // Cuando el usuario cambia a los módulos que muestran Storage, asegurar
+    // que los archivos se recarguen. Si no hay conexión registrada, intentar
+    // reconectar automáticamente si hay credenciales guardadas.
+    if (target === 'draco' || target === 'alimentar') {
+      if (!this.connected) {
+        // Si hay credenciales en memoria (o en localStorage), intentar reconectar.
+        const savedUrl = this.supabaseUrl || localStorage.getItem('sb_url') || '';
+        const savedKey = this.supabaseKey || localStorage.getItem('sb_key') || '';
+        if (savedUrl && savedKey) {
+          try {
+            this.supabaseUrl = savedUrl;
+            this.supabaseKey = savedKey;
+            await this.connectSupabase();
+          } catch (connErr) {
+            console.warn('No fue posible reconectar automáticamente al cambiar de módulo', connErr);
+          }
+        }
+      }
+
+      // Intentar cargar el contenido del Storage aunque no haya conexión activa;
+      // la función internamente maneja errores y no romperá la UI.
+      try {
+        await this.loadStorageContent();
+      } catch (error) {
+        console.warn('No se pudieron recargar los archivos al cambiar de módulo', error);
+      }
+    }
+  }
+
+  async selectModelForReplace(model: StorageFileItem): Promise<void> {
+    this.selectedModelForReplace = model;
+    this.replacementFile = null;
+    this.replacementMessage = '';
+  }
+
+  async forceReloadModels(): Promise<void> {
+    console.log('forceReloadModels: manual reload triggered');
+    try {
+      await this.loadStorageContent();
+      console.log('forceReloadModels: dracoModels count', this.dracoModels.length, 'models:', this.dracoModels.map(m => m.name));
+      this.ngZone.run(() => { try { this.cdr.detectChanges(); } catch (e) {} });
+    } catch (e) {
+      console.error('forceReloadModels error', e);
+    }
+  }
+
+  async autoOptimizeModel(model: StorageFileItem): Promise<void> {
+    this.selectedModelForReplace = model;
+    this.replacementFile = null;
+    this.replacementMessage = 'Solicitando optimización al servidor...';
+    this.isReplacing = true;
+
+    try {
+      const result = await this.dashboardService.optimizeStorageFile(model.bucket, model.path);
+      const originalSize = result.original_size;
+      const newSize = result.compressed_size;
+      const reduction = originalSize > 0
+        ? Number((((originalSize - newSize) / originalSize) * 100).toFixed(1))
+        : 0;
+
+      this.ngZone.run(() => {
+        this.replacementMessage = `Optimización en servidor completa: ${this.formatBytes(newSize)} (${reduction}% reducción).`;
+      });
+
+      // Recargar lista y forzar renderizado
+      await this.loadStorageContent();
+      try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+    } catch (error) {
+      console.error('autoOptimizeModel (server) error', error);
+      this.ngZone.run(() => {
+        this.replacementMessage = `Error al optimizar en servidor: ${error instanceof Error ? error.message : 'Error desconocido'}`;
+      });
+    } finally {
+      this.ngZone.run(() => { this.isReplacing = false; });
+    }
+  }
+
+  onReplacementFileChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (file) {
+      this.replacementFile = file;
+      this.replacementMessage = `Archivo seleccionado: ${file.name} (${this.formatBytes(file.size)})`;
+    } else {
+      this.replacementFile = null;
+      this.replacementMessage = '';
+    }
+  }
+
+  async compressAndReplace(): Promise<void> {
+    if (!this.selectedModelForReplace) {
+      this.replacementMessage = 'Selecciona un modelo antes de reemplazarlo.';
+      return;
+    }
+
+    if (!this.replacementFile) {
+      this.replacementMessage = 'Selecciona un archivo .glb o .gltf comprimido para reemplazar.';
+      return;
+    }
+
+    this.isReplacing = true;
+    this.replacementMessage = 'Subiendo archivo y reemplazando el modelo...';
+
+    try {
+      const result = await this.dashboardService.replaceStorageFile(
+        this.selectedModelForReplace.bucket,
+        this.selectedModelForReplace.path,
+        this.replacementFile
+      );
+
+      const originalSize = this.selectedModelForReplace.size;
+      const newSize = result.size;
+      const reduction = originalSize > 0
+        ? Number((((originalSize - newSize) / originalSize) * 100).toFixed(1))
+        : 0;
+
+      this.selectedModelForReplace.size = newSize;
+      this.selectedModelForReplace.estimatedCompressedSize = newSize;
+      this.selectedModelForReplace.compressionRatio = reduction;
+      this.selectedModelForReplace.url = this.selectedModelForReplace.url;
+
+      this.replacementMessage = `Reemplazo completado: nuevo peso ${this.formatBytes(newSize)} (${reduction}% de reducción).`;
+      await this.loadStorageContent();
+    } catch (error) {
+      console.error(error);
+      this.replacementMessage = 'Error al reemplazar el archivo. Revisa la consola para más detalles.';
+    } finally {
+      this.isReplacing = false;
+    }
+  }
+
+  formatBytes(bytes: number): string {
+    if (bytes === 0) { return '0 B'; }
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
   }
 
   refreshMetrics(): void {
