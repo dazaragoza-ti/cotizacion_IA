@@ -1,0 +1,126 @@
+{
+  "_meta": {
+    "fuente": "D 2 ENERO 2024 LINEA.xlsx — Lista MAYOREO PM La Piedad",
+    "fecha_lista": "2024-01-02",
+    "moneda": "MXN",
+    "notas": [
+      "Precios MAYOREO sin IVA.",
+      "Stock cabeceras carga pesada gota: fondos 61, 91.5 y 123 cm únicamente.",
+      "Capacidades: poste sencillo carga pesada = 4500 kg/sección individual o 2250 kg/sección compartida.",
+      "Largueros 272 y 302 cm requieren 2 cargadores por par."
+    ]
+  },
+  "cabeceras_carga_pesada_gota": {
+    "fondo_61": [
+      {"codigo": "CRG-7111", "desc": "CABECERA 61X120 CARGA PESADA GOTA", "alto_mm": 1226, "fondo_mm": 612, "precio": 1578.43},
+      {"codigo": "CRG-7112", "desc": "CABECERA 61X150 CARGA PESADA GOTA", "alto_mm": 1530, "fondo_mm": 612, "precio": 1629.84},
+      {"codigo": "CRG-7113", "desc": "CABECERA 61X180 CARGA PESADA GOTA", "alto_mm": 1834, "fondo_mm": 612, "precio": 1665.84},
+      {"codigo": "CRG-7114", "desc": "CABECERA 61X221 CARGA PESADA GOTA", "alto_mm": 2240, "fondo_mm": 612, "precio": 2199.41},
+      {"codigo": "CRG-7115", "desc": "CABECERA 61X242 CARGA PESADA GOTA", "alto_mm": 2443, "fondo_mm": 612, "precio": 2207.24},
+      {"codigo": "CRG-7116", "desc": "CABECERA 61X272 CARGA PESADA GOTA", "alto_mm": 2748, "fondo_mm": 612, "precio": 2405.45},
+      {"codigo": "CRG-7117", "desc": "CABECERA 61X302 CARGA PESADA GOTA", "alto_mm": 3001, "fondo_mm": 612, "precio": 2725.04},
+      {"codigo": "CRG-7118", "desc": "CABECERA 61X336 CARGA PESADA GOTA", "alto_mm": 3357, "fondo_mm": 612, "precio": 3380.12},
+      {"codigo": "CRG-7119", "desc": "CABECERA 61X367 CARGA PESADA GOTA", "alto_mm": 3665, "fondo_mm": 612, "precio": 3464.96},
+      {"codigo": "CRG-7120", "desc": "CABECERA 61X397 CARGA PESADA GOTA", "alto_mm": 4025, "fondo_mm": 612, "precio": 4015.96}
+    ],
+    "fondo_91_5": [
+      {"codigo": "CRG-7131", "desc": "CABECERA 91.5X120 CARGA PESADA GOTA", "alto_mm": 1226, "fondo_mm": 917, "precio": 1640.65},
+      {"codigo": "CRG-7132", "desc": "CABECERA 91.5X150 CARGA PESADA GOTA", "alto_mm": 1530, "fondo_mm": 917, "precio": 1682.92},
+      {"codigo": "CRG-7133", "desc": "CABECERA 91.5X180 CARGA PESADA GOTA", "alto_mm": 1834, "fondo_mm": 917, "precio": 1780.07},
+      {"codigo": "CRG-7134", "desc": "CABECERA 91.5X221 CARGA PESADA GOTA", "alto_mm": 2240, "fondo_mm": 917, "precio": 2297.30},
+      {"codigo": "CRG-7135", "desc": "CABECERA 91.5X242 CARGA PESADA GOTA", "alto_mm": 2443, "fondo_mm": 917, "precio": 2305.17},
+      {"codigo": "CRG-7136", "desc": "CABECERA 91.5X272 CARGA PESADA GOTA", "alto_mm": 2748, "fondo_mm": 917, "precio": 2485.04},
+      {"codigo": "CRG-7137", "desc": "CABECERA 91.5X302 CARGA PESADA GOTA", "alto_mm": 3001, "fondo_mm": 917, "precio": 2802.25},
+      {"codigo": "CRG-7138", "desc": "CABECERA 91.5X336 CARGA PESADA GOTA", "alto_mm": 3357, "fondo_mm": 917, "precio": 3561.26},
+      {"codigo": "CRG-7139", "desc": "CABECERA 91.5X367 CARGA PESADA GOTA", "alto_mm": 3665, "fondo_mm": 917, "precio": 3589.69},
+      {"codigo": "CRG-7140", "desc": "CABECERA 91.5X397 CARGA PESADA GOTA", "alto_mm": 4025, "fondo_mm": 917, "precio": 4148.68}
+    ],
+    "fondo_123": [
+      {"codigo": "CRG-7141", "desc": "CABECERA 123X120 CARGA PESADA GOTA", "alto_mm": 1226, "fondo_mm": 1232, "precio": 1483.15},
+      {"codigo": "CRG-7142", "desc": "CABECERA 123X150 CARGA PESADA GOTA", "alto_mm": 1530, "fondo_mm": 1232, "precio": 1856.29},
+      {"codigo": "CRG-7143", "desc": "CABECERA 123X180 CARGA PESADA GOTA", "alto_mm": 1834, "fondo_mm": 1232, "precio": 1919.80},
+      {"codigo": "CRG-7144", "desc": "CABECERA 123X221 CARGA PESADA GOTA", "alto_mm": 2240, "fondo_mm": 1232, "precio": 2573.59},
+      {"codigo": "CRG-7145", "desc": "CABECERA 123X242 CARGA PESADA GOTA", "alto_mm": 2443, "fondo_mm": 1232, "precio": 2591.37},
+      {"codigo": "CRG-7146", "desc": "CABECERA 123X272 CARGA PESADA GOTA", "alto_mm": 2748, "fondo_mm": 1232, "precio": 2775.47},
+      {"codigo": "CRG-7147", "desc": "CABECERA 123X302 CARGA PESADA GOTA", "alto_mm": 3001, "fondo_mm": 1232, "precio": 2974.92},
+      {"codigo": "CRG-7148", "desc": "CABECERA 123X336 CARGA PESADA GOTA", "alto_mm": 3357, "fondo_mm": 1232, "precio": 3975.14},
+      {"codigo": "CRG-7149", "desc": "CABECERA 123X367 CARGA PESADA GOTA", "alto_mm": 3665, "fondo_mm": 1232, "precio": 4004.21},
+      {"codigo": "CRG-7150", "desc": "CABECERA 123X397 CARGA PESADA GOTA", "alto_mm": 4025, "fondo_mm": 1232, "precio": 4628.44}
+    ]
+  },
+  "largueros_carga_pesada_gota": {
+    "peralte_10_sin_escalon": [
+      {"codigo": "LRS-7341", "frente_mm": 1294, "carga_par_kg": 3600, "precio": 763.86},
+      {"codigo": "LRS-7342", "frente_mm": 1594, "carga_par_kg": 3300, "precio": 894.00},
+      {"codigo": "LRS-7343", "frente_mm": 1894, "carga_par_kg": 3000, "precio": 945.95},
+      {"codigo": "LRS-7344", "frente_mm": 2294, "carga_par_kg": 2000, "precio": 1154.31},
+      {"codigo": "LRS-7345", "frente_mm": 2504, "carga_par_kg": 1700, "precio": 1250.53},
+      {"codigo": "LRS-7346", "frente_mm": 2804, "carga_par_kg": 1500, "precio": 1366.69},
+      {"codigo": "LRS-7347", "frente_mm": 3104, "carga_par_kg": 1300, "precio": 1479.72}
+    ],
+    "peralte_12_5_sin_escalon": [
+      {"codigo": "LRS-7351", "frente_mm": 1294, "carga_par_kg": 4700, "precio": 911.87},
+      {"codigo": "LRS-7352", "frente_mm": 1594, "carga_par_kg": 4200, "precio": 1014.82},
+      {"codigo": "LRS-7353", "frente_mm": 1894, "carga_par_kg": 3800, "precio": 1147.45},
+      {"codigo": "LRS-7354", "frente_mm": 2294, "carga_par_kg": 2700, "precio": 1334.70},
+      {"codigo": "LRS-7355", "frente_mm": 2504, "carga_par_kg": 2200, "precio": 1450.32},
+      {"codigo": "LRS-7356", "frente_mm": 2804, "carga_par_kg": 2000, "precio": 1718.69},
+      {"codigo": "LRS-7357", "frente_mm": 3104, "carga_par_kg": 1850, "precio": 1871.29}
+    ],
+    "peralte_15_sin_escalon": [
+      {"codigo": "LRS-7361", "frente_mm": 1294, "carga_par_kg": 6000, "precio": 962.79},
+      {"codigo": "LRS-7362", "frente_mm": 1594, "carga_par_kg": 5500, "precio": 1139.10},
+      {"codigo": "LRS-7363", "frente_mm": 1894, "carga_par_kg": 5000, "precio": 1386.88},
+      {"codigo": "LRS-7364", "frente_mm": 2294, "carga_par_kg": 3800, "precio": 1520.35},
+      {"codigo": "LRS-7365", "frente_mm": 2504, "carga_par_kg": 3200, "precio": 1655.87},
+      {"codigo": "LRS-7366", "frente_mm": 2804, "carga_par_kg": 3000, "precio": 1816.42},
+      {"codigo": "LRS-7367", "frente_mm": 3104, "carga_par_kg": 2800, "precio": 2125.02}
+    ]
+  },
+  "accesorios": {
+    "cargador": [
+      {"codigo": "CA-7510", "desc": "CARGADOR 61", "fondo_mm": 632, "precio": 177.45},
+      {"codigo": "CA-7511", "desc": "CARGADOR 91.5", "fondo_mm": 937, "precio": 237.10},
+      {"codigo": "CA-7512", "desc": "CARGADOR 123", "fondo_mm": 1253, "precio": 282.81}
+    ],
+    "grapa_unidora_poste": [
+      {"codigo": "GR-7492", "desc": "GRAPA UNIDORA DE POSTE CARGA PESADA GOTA", "precio": 77.04},
+      {"codigo": "RA0063", "desc": "GRAPA UNIDORA DE POSTE CARGA LIGERA GOTA", "precio": 49.14}
+    ],
+    "calza_nivelar": [
+      {"codigo": "CNP-7931", "desc": "CALZA PARA NIVELAR PISO", "precio": 30.91},
+      {"codigo": "RA0047", "desc": "CALZA PARA NIVELAR PISO 4+ (rack >4m)", "precio": 44.35},
+      {"codigo": "RA0059", "desc": "CALZA PARA NIVELAR PISO CARGA LIGERA", "precio": 23.40}
+    ],
+    "separador_cabecera_gota": [
+      {"codigo": "SC-7415", "desc": "SEPARADOR DE CABECERA 15 GOTA", "precio": 254.76},
+      {"codigo": "SC-7412", "desc": "SEPARADOR DE CABECERA 20 GOTA", "precio": 260.33},
+      {"codigo": "SC-7416", "desc": "SEPARADOR DE CABECERA 25 GOTA", "precio": 269.47},
+      {"codigo": "SC-7413", "desc": "SEPARADOR DE CABECERA 30 GOTA", "precio": 274.98},
+      {"codigo": "SC-7417", "desc": "SEPARADOR DE CABECERA 35 GOTA", "precio": 280.81},
+      {"codigo": "SC-7414", "desc": "SEPARADOR DE CABECERA 40 GOTA", "precio": 291.73},
+      {"codigo": "SC-7419", "desc": "SEPARADOR DE CABECERA 91 GOTA", "precio": 376.55},
+      {"codigo": "SC-7418", "desc": "SEPARADOR DE CABECERA 122 GOTA", "precio": 431.70},
+      {"codigo": "SC-7411", "desc": "SEPARADOR DE CABECERA 150 GOTA", "precio": 432.57}
+    ],
+    "separador_cabecera_muro": [
+      {"codigo": "SCM-7415", "desc": "SEPARADOR DE CABECERA A MURO 15 GOTA", "precio": 170.22},
+      {"codigo": "SCM-7413", "desc": "SEPARADOR DE CABECERA A MURO 30 GOTA", "precio": 190.41},
+      {"codigo": "SCM-7414", "desc": "SEPARADOR DE CABECERA A MURO 40 GOTA", "precio": 207.11}
+    ],
+    "defensa": [
+      {"codigo": "DR-7452", "desc": "DEFENSA RACK GRANDE (placa 1/4)", "precio": 1720.17}
+    ],
+    "entrepiso_extruido": [
+      {"codigo": "ESP-1101", "desc": "ENTREPISO EXTRUIDO CAL 14 24X83", "precio": 508.52},
+      {"codigo": "EEX-0925", "desc": "ENTREPISO EXTRUIDO CAL 14 24X91", "precio": 510.87},
+      {"codigo": "ESP-0864", "desc": "ENTREPISO EXTRUIDO CAL 14 24X122", "precio": 665.72}
+    ],
+    "tornilleria_taquetes": [
+      {"codigo": "MPR0272", "desc": "TORNILLO HEX GALV 5/16\"X3/4\" ALTA RESISTENCIA (seguridad ménsula)", "precio": 4.89},
+      {"codigo": "MPR0318", "desc": "TUERCA HEX GALV 5/16\" ALTA RESISTENCIA", "precio": 3.25},
+      {"codigo": "MPR0313", "desc": "TAQUETE TIPO ARPON 1/2\"X4 1/2\"", "precio": 32.72},
+      {"codigo": "MPR0833", "desc": "TAQUETE TIPO ARPON 5/8\"X6\" (rack >4m altura)", "precio": 58.91}
+    ]
+  }
+}

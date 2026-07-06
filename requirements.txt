@@ -5,7 +5,18 @@ easyocr==1.7.0
 supabase==2.3.5
 pydantic==2.5.0
 groq==0.4.2
+anthropic>=0.40.0
 python-dotenv==1.0.0
-python-telegram-bot==20.3
+python-telegram-bot>=21.0
 aiofiles==23.2.1
 httpx==0.25.2
+openpyxl==3.1.5
+reportlab==4.2.5
+
+# --- Motor del proyectista PM (rack-bot adaptado, app/services/pm_rackbot/) ---
+numpy
+scipy
+trimesh
+matplotlib
+pillow
+pycollada    # opcional: exportar DAE (importable en SketchUp)
