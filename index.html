@@ -13,6 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
     
     <!-- Cliente de Supabase para suscripción Realtime -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -59,7 +60,7 @@
                     <i class="fa-solid fa-plug"></i> Conectar
                 </button>
             </div>
-            <div id="badge-autologin" class="hidden bg-emerald-50 border border-emerald-500/20 text-emerald-700 text-xs px-3.5 py-1.5 rounded-full font-semibold flex items-center space-x-1.5">
+            <div id="badge-autologin" class="hidden bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs px-3.5 py-1.5 rounded-full font-semibold flex items-center space-x-1.5">
                 <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>Acceso por Enlace Activo</span>
             </div>
@@ -108,7 +109,7 @@
                             </div>
                             <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                                 <span class="text-[9px] uppercase text-slate-400 block font-semibold">Capacidad por Nivel</span>
-                                <span id="det-carga" class="text-xs font-bold text-indigo-600">-</span>
+                                <span id="det-carga" class="text-xs font-bold text-indigo-300">-</span>
                             </div>
                             <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                                 <span class="text-[9px] uppercase text-slate-400 block font-semibold">Niveles de Altura</span>
@@ -128,7 +129,7 @@
 
                         <!-- Desglose de Componentes Físicos -->
                         <div class="space-y-2">
-                            <span class="text-[9px] uppercase text-slate-400 block font-semibold">Componentes de Fabricación</span>
+                            <span class="text-[9px] uppercase text-slate-500 block">Componentes de Fabricación</span>
                             <div id="lista-componentes" class="max-h-44 overflow-y-auto space-y-1.5 pr-1">
                                 <!-- Inyectado de forma dinámica -->
                             </div>
@@ -149,11 +150,11 @@
         <!-- Panel Derecho: Visor 3D Interactivo (8 Columnas - Fondo Blanco) -->
         <section class="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col min-h-[500px] relative">
             <div class="absolute top-6 left-6 z-10 flex items-center space-x-2">
-                <span class="bg-white/90 border border-slate-100 text-slate-700 text-xs px-3 py-1.5 rounded-full shadow-sm flex items-center">
+                <span class="bg-white/90 border border-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-full shadow flex items-center">
                     <span class="h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
                     Vista Interactiva 3D
                 </span>
-                <button id="btn-reset" class="bg-white/90 hover:bg-slate-50 text-xs px-3 py-1.5 rounded-full border border-slate-200 shadow-sm transition flex items-center gap-1.5 text-slate-600">
+                <button id="btn-reset" class="bg-white/90 hover:bg-slate-50 text-xs px-3 py-1.5 rounded-full border border-slate-200 shadow transition flex items-center gap-1.5 text-slate-600">
                     <i class="fa-solid fa-arrows-spin"></i> Reset Cámara
                 </button>
             </div>
@@ -187,12 +188,18 @@
     <!-- SCRIPT DE INTEGRACIÓN Y GRÁFICOS 3D -->
     <script>
         // --- 1. CONFIGURACIÓN DEL SISTEMA 3D (THREE.JS - TEMA CLARO) ---
-        let scene, camera, renderer, controls;
-        let objectsGroup; // Grupo contenedor para limpiar la escena fácilmente en cada renderizado
-        let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
+        let scene, camera, renderer, controls, objectsGroup;
+        let supabaseClient = null;
         let targetSessionId = null; // Variable global para sincronizar por id de sesión
+        let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
         const container = document.getElementById('canvas-container');
         const loader = new THREE.GLTFLoader();
+        // Los .glb del catálogo se comprimen con Draco (módulo "Optimizar Draco
+        // CAD" del backend) — sin este decodificador, GLTFLoader falla al
+        // parsear CUALQUIER modelo comprimido y cae siempre al fallback geométrico.
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        loader.setDRACOLoader(dracoLoader);
 
         function debugLog(mensaje, esError = false) {
             const consola = document.getElementById('console-log');
@@ -275,13 +282,17 @@
             if (renderer && scene && camera) renderer.render(scene, camera);
         }
 
-        // Manejo adaptativo de ventanas
+        // Función global para redimensionar el canvas de forma adaptativa
         function resizeCanvas() {
             if (!camera || !renderer) return;
-            camera.aspect = container.clientWidth / container.clientHeight;
+            const w = container.clientWidth || 900;
+            const h = container.clientHeight || 600;
+            camera.aspect = w / h;
             camera.updateProjectionMatrix();
-            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setSize(w, h);
         }
+
+        // Manejo adaptativo de ventanas
         window.addEventListener('resize', resizeCanvas);
 
         document.getElementById('btn-reset').addEventListener('click', () => {
@@ -292,7 +303,7 @@
         });
 
 
-        // --- 2. CARGA DE MODELOS CON NORMALIZACIÓN Y AUTO-ESCALADO ---
+        // --- 2. CARGA DE MODELOS PUROS (SIN ENSAMBLE PROCEDURAL DEL FRONTEND) ---
         function renderComponente(comp, tipo) {
             // Colores oscuros de contraste para las geometrías de fallback (mejor legibles en fondo blanco)
             const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : 0x4f46e5);
@@ -304,11 +315,6 @@
             const posX = parseFloat(comp.posicion?.x ?? 0);
             const posY = parseFloat(comp.posicion?.y ?? 0);
             const posZ = parseFloat(comp.posicion?.z ?? 0);
-
-            // Dimensiones técnicas deseadas definidas en catálogo o por defecto
-            let targetLargo = parseFloat(piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.12));
-            let targetAlto = parseFloat(piezaData?.altura_metros ?? (tipo === 'marco' ? 4.0 : 0.12));
-            let targetProf = parseFloat(piezaData?.profundidad_metros ?? (tipo === 'marco' ? 1.0 : 0.08));
 
             // DIAGNÓSTICOS EN CONSOLA VISUAL:
             if (!piezaData) {
@@ -323,7 +329,7 @@
                 return;
             }
 
-            // Si la pieza existe y tiene una URL de modelo GLB válida en Supabase, la renderizamos
+            // Si la pieza existe y tiene una URL de modelo GLB válida en Supabase, la renderizamos de forma limpia
             if (piezaData && piezaData.url_modelo_glb) {
                 let urlModelo = piezaData.url_modelo_glb.trim();
                 
@@ -350,36 +356,26 @@
                             }
                         });
 
-                        // --- ALGORITMO DE NORMALIZACIÓN DE ESCALA ---
-                        const bbox = new THREE.Box3().setFromObject(modelo);
-                        const size = new THREE.Vector3();
-                        bbox.getSize(size);
+                        // CARGA DIRECTA Y PURA:
+                        // No alteramos el pivote de la escena original para respetar la escala y alineación del CAD de origen.
+                        modelo.position.set(posX, posY, posZ);
 
-                        // Evitar divisiones por cero si el GLB no contiene malla
-                        const scaleX = size.x > 0.001 ? (targetLargo / size.x) : 1;
-                        const scaleY = size.y > 0.001 ? (targetAlto / size.y) : 1;
-                        const scaleZ = size.z > 0.001 ? (targetProf / size.z) : 1;
-
-                        modelo.scale.set(scaleX, scaleY, scaleZ);
-
-                        // --- ALGORITMO DE CENTRADO DE PIVOTES ---
-                        const center = new THREE.Vector3();
-                        bbox.getCenter(center);
-
-                        // El pivote se asienta exactamente en las coordenadas (X, Y, Z) compensadas
-                        modelo.position.set(
-                            posX - (center.x * scaleX),
-                            posY - ((center.y - size.y / 2) * scaleY),
-                            posZ - (center.z * scaleZ)
-                        );
+                        if (comp.rotacion) {
+                            modelo.rotation.set(
+                                parseFloat(comp.rotacion.x ?? 0),
+                                parseFloat(comp.rotacion.y ?? 0),
+                                parseFloat(comp.rotacion.z ?? 0)
+                            );
+                        }
 
                         objectsGroup.add(modelo);
-                        debugLog(`Modelo ${comp.sku} auto-escalado y montado.`, "ok");
+                        debugLog(`Modelo ${comp.sku} montado correctamente.`, "ok");
                         actualizarContadorPiezas();
+                        enfocarEscena();
                     },
                     undefined,
                     (error) => {
-                        debugLog(`Fallo al cargar GLB para ${comp.sku}. Usando fallback geométrico.`, true);
+                        debugLog(`Fallo al cargar GLB para ${comp.sku}: ${error?.message || error}. Usando fallback geométrico.`, true);
                         renderizarFallback(comp, tipo, materialColor, piezaData);
                     }
                 );
@@ -388,11 +384,10 @@
             }
         }
 
+        // Renderizado simplificado de respaldo: Muestra una caja con las medidas técnicas puras sin intentar armar componentes de juguete.
         function renderizarFallback(comp, tipo, colorHex, piezaData) {
-            let geometry, material, mesh;
-            
-            // Dimensiones fallback
-            let largo = parseFloat(piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.1));
+            // Dimensiones de precisión definidas en base de datos
+            let largo = parseFloat(piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.12));
             let alto = parseFloat(piezaData?.altura_metros ?? (tipo === 'marco' ? 4.0 : 0.12));
             let prof = parseFloat(piezaData?.profundidad_metros ?? (tipo === 'marco' ? 1.0 : 0.08));
 
@@ -400,52 +395,20 @@
             const posY = parseFloat(comp.posicion?.y ?? 0);
             const posZ = parseFloat(comp.posicion?.z ?? 0);
 
-            // Diseños geométricos realistas basados en ingeniería estándar
-            if (tipo === 'marco') {
-                const group = new THREE.Group();
-                group.position.set(posX, posY, posZ);
-
-                const posteGeo = new THREE.BoxGeometry(0.08, alto, 0.08);
-                const posteMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5, metalness: 0.6 });
-                
-                const poste1 = new THREE.Mesh(posteGeo, posteMat);
-                poste1.position.set(0, alto / 2, -prof / 2);
-                poste1.castShadow = true;
-                group.add(poste1);
-
-                const poste2 = new THREE.Mesh(posteGeo, posteMat);
-                poste2.position.set(0, alto / 2, prof / 2);
-                poste2.castShadow = true;
-                group.add(poste2);
-
-                const travGeo = new THREE.BoxGeometry(0.04, 0.04, prof);
-                const travMat = new THREE.MeshStandardMaterial({ color: 0x64748b });
-                
-                for (let h = 0.4; h < alto; h += 0.9) {
-                    const travesano = new THREE.Mesh(travGeo, travMat);
-                    travesano.position.set(0, h, 0);
-                    group.add(travesano);
-                }
-
-                objectsGroup.add(group);
-
-            } else if (tipo === 'viga') {
-                geometry = new THREE.BoxGeometry(largo, alto, prof);
-                material = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3, metalness: 0.7 });
-                mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(posX, posY, posZ);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                objectsGroup.add(mesh);
-
-            } else if (tipo === 'mensula') {
-                geometry = new THREE.BoxGeometry(0.12, 0.16, 0.14);
-                material = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4, metalness: 0.8 });
-                mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(posX, posY, posZ);
-                mesh.castShadow = true;
-                objectsGroup.add(mesh);
-            }
+            // Representación técnica de volumen mediante un prisma regular semitransparente
+            const geometry = new THREE.BoxGeometry(largo, alto, prof);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: colorHex, 
+                roughness: 0.5, 
+                metalness: 0.2,
+                transparent: true,
+                opacity: 0.65
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(posX, posY + (alto / 2), posZ); // Centrado en su altura respecto al suelo cartesiano
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            objectsGroup.add(mesh);
 
             actualizarContadorPiezas();
             enfocarEscena();
@@ -597,10 +560,18 @@
 
         // --- AUTOLOGIN & CREDENCIALES ---
         function checarAutoLoginURL() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const rawUrl = urlParams.get('sb_url');
-            const rawKey = urlParams.get('sb_key');
-            const session = urlParams.get('session_id');
+            // Soporta parámetros tanto en el formato query clásico como después del Hash (#) debido a manejadores de Webview móviles
+            const searchParams = new URLSearchParams(window.location.search);
+            let rawUrl = searchParams.get('sb_url');
+            let rawKey = searchParams.get('sb_key');
+            let session = searchParams.get('session_id');
+
+            if (!rawUrl || !rawKey) {
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                rawUrl = rawUrl || hashParams.get('sb_url');
+                rawKey = rawKey || hashParams.get('sb_key');
+                session = session || hashParams.get('session_id');
+            }
 
             if (rawUrl && rawKey) {
                 const url = decodeURIComponent(rawUrl);
