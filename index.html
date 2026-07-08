@@ -13,6 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
     
     <!-- Cliente de Supabase para suscripción Realtime -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -193,6 +194,12 @@
         let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
         const container = document.getElementById('canvas-container');
         const loader = new THREE.GLTFLoader();
+        // Los .glb del catálogo se comprimen con Draco (módulo "Optimizar Draco
+        // CAD" del backend) — sin este decodificador, GLTFLoader falla al
+        // parsear CUALQUIER modelo comprimido y cae siempre al fallback geométrico.
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        loader.setDRACOLoader(dracoLoader);
 
         function debugLog(mensaje, esError = false) {
             const consola = document.getElementById('console-log');
@@ -368,7 +375,7 @@
                     },
                     undefined,
                     (error) => {
-                        debugLog(`Fallo al cargar GLB para ${comp.sku}. Usando fallback geométrico.`, true);
+                        debugLog(`Fallo al cargar GLB para ${comp.sku}: ${error?.message || error}. Usando fallback geométrico.`, true);
                         renderizarFallback(comp, tipo, materialColor, piezaData);
                     }
                 );
