@@ -22,7 +22,7 @@ from telegram.ext import ContextTypes
 
 from ..services.ocr_service import transcribir_audio_groq, comprimir_imagen, describir_imagen_groq
 from ..services.proyecto_pm_service import generar_proyecto_pm, limpiar_temporales
-from ..services.pm_rackbot import cuestionario
+from ..ai.pipelines import cuestionario
 
 log = logging.getLogger("telegram.handlers")
 

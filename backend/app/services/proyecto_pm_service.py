@@ -20,11 +20,16 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .pm_rackbot import claude_client, pipeline, validador
-from .pm_rackbot import historial_service as historial
-from .pm_rackbot import correcciones_pm_service as correcciones
-from .pm_rackbot.utils import extraer_html, extraer_json, trocear
-from .pm_rackbot.adaptador_visor import layout_a_matriz_ensamble_3d
+from ..ai.clients import claude_client
+
+from ..ai.pipelines import pipeline
+
+from ..engineering import validator_engine
+from . import historial_service as historial
+from . import correcciones_pm_service as correcciones
+from ..ai.pipelines.utils import extraer_html, extraer_json, trocear
+from ..ai.adapters.adaptador_visor import layout_a_matriz_ensamble_3d
+from ..ai.rag.vector_store import vector_store
 from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
 from ..clients import supabase
@@ -77,6 +82,25 @@ async def generar_proyecto_pm(
             f"Mensaje del cliente:\n{descripcion}"
         )
 
+    # --- RAG: correcciones parecidas por similitud semántica (no por clave) ---
+    # Busca en correcciones_armado (vectorizadas) casos donde un cliente pidió
+    # algo parecido antes, sin importar si es el mismo proyecto o uno nuevo.
+    # Si Supabase todavía no tiene el RPC match_knowledge o la tabla está
+    # vacía, esto falla silencioso y el flujo sigue igual que antes.
+    try:
+        correcciones_similares = vector_store.search(descripcion, top_k=5, tipo="correccion")
+    except Exception as e:  # noqa: BLE001
+        log.warning("Búsqueda RAG de correcciones falló (¿falta el RPC match_knowledge en Supabase?): %s", e)
+        correcciones_similares = []
+
+    if correcciones_similares:
+        bloque = "\n\n".join(c.get("contenido", "").strip() for c in correcciones_similares if c.get("contenido"))
+        descripcion_para_claude += (
+            "\n\n[Correcciones aprendidas de casos parecidos anteriores — aplícalas si el caso "
+            "coincide, tienen prioridad sobre el criterio general porque ya fueron validadas "
+            "en la práctica]\n" + bloque
+        )
+
     try:
         texto, input_tokens, output_tokens = await claude_client.generar(descripcion_para_claude, imagenes, pdfs)
     except Exception as e:
@@ -102,7 +126,7 @@ async def generar_proyecto_pm(
 
     if proyecto:
         try:
-            validacion = validador.validar(proyecto)
+            validacion = validator_engine.validar(proyecto)
             log.info("Validación: %s", validacion.resumen())
             if validacion.errores or validacion.advertencias:
                 resultado.validacion_texto = trocear(validacion.como_texto())
