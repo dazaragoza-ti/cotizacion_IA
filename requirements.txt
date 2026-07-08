@@ -13,10 +13,15 @@ httpx==0.25.2
 openpyxl==3.1.5
 reportlab==4.2.5
 
-# --- Motor del proyectista PM (rack-bot adaptado, app/services/pm_rackbot/) ---
+# --- Motor del proyectista PM (app/ai/: clients, pipelines, generators, knowledge) ---
 numpy
 scipy
 trimesh
 matplotlib
 pillow
 pycollada    # opcional: exportar DAE (importable en SketchUp)
+
+# --- Sistema RAG (app/ai/rag/) ---
+pydantic-settings
+openai        # proveedor de embeddings por defecto (EMBEDDING_PROVIDER=openai en ai/rag/config.py)
+voyageai      # proveedor alterno recomendado por Anthropic (EMBEDDING_PROVIDER=voyage)
