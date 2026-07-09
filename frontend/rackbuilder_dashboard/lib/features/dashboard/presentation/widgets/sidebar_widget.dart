@@ -34,6 +34,7 @@ class SidebarWidget extends StatelessWidget {
             NavButton(icon: Icons.history,        label: "Historial de Diseños", active: module == DashModule.historial,  onTap: () => onSwitch(DashModule.historial)),
             NavButton(icon: Icons.insights,       label: "Aprendizaje (Estadísticas)", active: module == DashModule.estadisticas, onTap: () => onSwitch(DashModule.estadisticas)),
             NavButton(icon: Icons.manage_search, label: "Búsqueda RAG", active: module == DashModule.rag, onTap: () => onSwitch(DashModule.rag)),
+            NavButton(icon: Icons.hub, label: "Arquitectura del Sistema", active: module == DashModule.arquitectura, onTap: () => onSwitch(DashModule.arquitectura)),
           ]),
         ),
         const SizedBox(height: 12),

@@ -19,8 +19,9 @@ import "../../../historial/presentation/screens/historial_screen.dart";
 import "../../../alimentar_ia/presentation/screens/alimentar_ia_screen.dart";
 import "../../../estadisticas/presentation/screens/estadisticas_screen.dart";
 import "../../../rag/presentation/screens/rag_screen.dart";
+import "../../../arquitectura/presentation/screens/arquitectura_screen.dart";
 
-enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas, rag }
+enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas, rag, arquitectura }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -137,6 +138,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         DashModule.historial  => const HistorialScreen(key: ValueKey("historial")),
         DashModule.estadisticas => const EstadisticasScreen(key: ValueKey("estadisticas")),
         DashModule.rag => const RagScreen(key: ValueKey("rag")),
+        DashModule.arquitectura => const ArquitecturaScreen(key: ValueKey("arquitectura")),
       },
     )),
   );
