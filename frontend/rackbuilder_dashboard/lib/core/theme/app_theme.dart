@@ -23,6 +23,13 @@ class AppColors {
   static const purple      = Color(0xFF8B5CF6);
   static const slate       = Color(0xFF475569);
   static const slateLight  = Color(0xFFF1F5F9);
+
+  // Variantes oscuras (mismo significado semantico que las de arriba).
+  static const bgDark          = Color(0xFF0B1220);
+  static const surfaceDark     = Color(0xFF111827);
+  static const borderDark      = Color(0xFF1F2937);
+  static const textPrimaryDark = Color(0xFFF1F5F9);
+  static const textSecondDark  = Color(0xFF94A3B8);
 }
 
 // ── Breakpoints responsivos ───────────────────────────────────────────────────
@@ -68,6 +75,45 @@ class AppTheme {
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.indigo, width: 1.5)),
+    ),
+  );
+
+  /// Sigue el mismo diseño que `light` pero con la paleta oscura de
+  /// AppColors.*Dark -- activado via ThemeMode.system en main.dart (respeta
+  /// la preferencia del SO, sin necesidad de un switch manual todavia).
+  static ThemeData get dark => ThemeData(
+    brightness: Brightness.dark,
+    colorScheme: ColorScheme.fromSeed(seedColor: AppColors.indigo, brightness: Brightness.dark),
+    fontFamily: 'Inter',
+    useMaterial3: true,
+    scaffoldBackgroundColor: AppColors.bgDark,
+    cardColor: AppColors.surfaceDark,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: AppColors.surfaceDark,
+      foregroundColor: AppColors.textPrimaryDark,
+      elevation: 0,
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.indigo,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.indigo,
+        side: const BorderSide(color: AppColors.indigoBorder),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: AppColors.surfaceDark,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.borderDark)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.borderDark)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.indigo, width: 1.5)),
     ),
   );
