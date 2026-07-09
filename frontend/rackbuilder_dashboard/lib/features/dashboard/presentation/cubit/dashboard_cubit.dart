@@ -4,7 +4,6 @@ import "package:supabase_flutter/supabase_flutter.dart";
 import "dashboard_state.dart";
 import "../../domain/usecases/get_metrics_usecase.dart";
 import "../../data/repositories/dashboard_repository_impl.dart";
-import "../../data/datasources/dashboard_remote_datasource.dart";
 
 class DashboardCubit extends Cubit<DashboardState> {
   final GetMetricsUsecase _getMetrics;

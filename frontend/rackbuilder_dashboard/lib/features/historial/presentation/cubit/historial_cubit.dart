@@ -1,6 +1,5 @@
 import "package:flutter_bloc/flutter_bloc.dart";
 import "historial_state.dart";
-import "../../domain/entities/diseno_entity.dart";
 import "../../domain/usecases/get_historial_usecase.dart";
 import "../../domain/usecases/get_versiones_usecase.dart";
 
