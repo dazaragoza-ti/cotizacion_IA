@@ -44,7 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case DashModule.historial:
         ctx.read<HistorialCubit>().loadHistorial();
       case DashModule.estadisticas:
-        ctx.read<EstadisticasCubit>().loadTop();
+        ctx.read<EstadisticasCubit>().cargarTodo();
       case DashModule.rag:
         break; // el buscador RAG espera a que el usuario escriba una consulta
       default:
@@ -66,7 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         case DashModule.historial:
           ctx.read<HistorialCubit>().loadHistorial();
         case DashModule.estadisticas:
-          ctx.read<EstadisticasCubit>().loadTop();
+          ctx.read<EstadisticasCubit>().cargarTodo();
         case DashModule.rag:
           break;
         default:

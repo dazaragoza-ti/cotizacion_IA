@@ -171,13 +171,30 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     Expanded(child: Text(texto, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, height: 1.3))),
   ]);
 
-  Widget _panelFlujo({required String titulo, required String subtitulo, required List<PasoFlujo> pasos}) => PanelCard(
-    title: titulo,
-    subtitle: subtitulo,
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      for (final paso in pasos) _filaPaso(paso),
-    ]),
-  );
+  Widget _panelFlujo({required String titulo, required String subtitulo, required List<PasoFlujo> pasos}) {
+    // Sin nodo seleccionado: se ven todos los pasos. Con un nodo seleccionado,
+    // solo quedan los pasos donde ese nodo participa (protagonista o
+    // relacionado) -- antes tocar Supabase o LangSmith no filtraba nada y
+    // parecia que no tenian relacion con ningun flujo.
+    final seleccionado = _seleccionado;
+    final pasosFiltrados = seleccionado == null
+        ? pasos
+        : pasos.where((p) => p.coincideCon(seleccionado)).toList();
+    return PanelCard(
+      title: titulo,
+      subtitle: subtitulo,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (seleccionado != null && pasosFiltrados.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text("Este nodo no participa directamente en este flujo.",
+                style: TextStyle(fontSize: 12, color: AppColors.textHint, fontStyle: FontStyle.italic)),
+          )
+        else
+          for (final paso in pasosFiltrados) _filaPaso(paso),
+      ]),
+    );
+  }
 
   Widget _filaPaso(PasoFlujo paso) {
     final activo = _seleccionado == paso.nodoId;

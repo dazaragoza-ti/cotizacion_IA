@@ -1,5 +1,6 @@
 import "package:dio/dio.dart";
 import "../models/estadistica_sku_model.dart";
+import "../models/correccion_model.dart";
 import "../../../../core/network/api_client.dart";
 import "../../../../core/constants/app_constants.dart";
 
@@ -14,6 +15,7 @@ const List<String> camposEstadisticas = [
 abstract class EstadisticasRemoteDatasource {
   Future<List<EstadisticaSkuModel>> getTop({required String campo, int limit = 10});
   Future<EstadisticaSkuModel?> getSku(String sku);
+  Future<List<CorreccionModel>> getCorrecciones({int limit = 100});
 }
 
 class EstadisticasRemoteDatasourceImpl implements EstadisticasRemoteDatasource {
@@ -39,5 +41,12 @@ class EstadisticasRemoteDatasourceImpl implements EstadisticasRemoteDatasource {
       if (e.response?.statusCode == 404) return null;
       rethrow;
     }
+  }
+
+  @override
+  Future<List<CorreccionModel>> getCorrecciones({int limit = 100}) async {
+    final res = await _api.dio.get(ApiEndpoints.correcciones, queryParameters: {"limit": limit});
+    return ((res.data["correcciones"] as List<dynamic>?) ?? [])
+        .map((r) => CorreccionModel.fromJson(r as Map<String, dynamic>)).toList();
   }
 }

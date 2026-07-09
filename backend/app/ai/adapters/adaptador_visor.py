@@ -16,6 +16,13 @@ Si no hay pieza real que matchee una categoría (p. ej. todavía no hay .glb
 de larguero), cae al código del despiece real del proyectista PM — el visor
 sigue mostrando el rack a escala correcta, solo que esa pieza en particular
 se ve con geometría de fallback en vez del modelo real.
+
+El cargador es un caso aparte: no existe (todavía) ningún .glb real para
+esta pieza en ningún proveedor -- ni el catalogo de Supabase ni el kit de
+referencia del bucket de ejemplos la incluyen. Por eso, ademas del SKU,
+mandamos "dimensiones" ya calculadas (en metros, a partir del fondo_mm real
+de este rack) para que el visor arme un fallback geometrico con las
+proporciones correctas en vez de caer al tamano generico por defecto.
 """
 from __future__ import annotations
 
@@ -62,6 +69,25 @@ def _sku_representativo(materiales: list[dict], palabras_clave: list[str], defau
         if any(k in desc for k in palabras_clave):
             return m.get("codigo") or default
     return default
+
+
+def _es_carga_pesada(proyecto: dict) -> bool:
+    """Misma heuristica que validator_engine._es_carga_pesada -- carga ligera
+    usa tensor en vez de cargador, asi que solo se generan cargadores para
+    carga pesada (default: pesada, es la mas comun)."""
+    layout = proyecto.get("layout", {}) or {}
+    memoria = proyecto.get("memoria", {}) or {}
+    textos = " ".join([
+        (proyecto.get("especificacion") or ""),
+        (layout.get("tipo") or ""),
+        (memoria.get("tipo_carga") or ""),
+    ]).lower()
+    return "ligera" not in textos
+
+
+# Frentes de larguero que requieren 2 cargadores por par en vez de 1
+# (misma tabla que validator_engine.FRENTES_CON_2_CARGADORES).
+_FRENTES_CON_2_CARGADORES = (2804, 3104)
 
 
 def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | None = None) -> dict:
@@ -115,14 +141,28 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         or _buscar_pieza_real(catalogo_piezas, ["mensula", "ménsula"])
         or _sku_representativo(materiales, ["mensula", "ménsula"], sku_larguero)
     )
+    sku_cargador = (
+        _buscar_pieza_real(catalogo_piezas, ["cargador"])
+        or _sku_representativo(materiales, ["cargador"], "CARGADOR-PM")
+    )
+
+    peralte_larguero_m = (layout.get("peralte_larguero_mm", 100) or 100) / 1000
+    tiene_cargadores = _es_carga_pesada(proyecto)
+    cargadores_por_bay = 2 if frente_mm in _FRENTES_CON_2_CARGADORES else 1
+    # Dimensiones reales del cargador (ver modelo_3d.py: ancho 60mm, espesor
+    # 30mm) -- el "largo" que varia por rack es el fondo, no un valor fijo de
+    # catalogo, por eso se calcula aqui en vez de venir de catalogo_piezas.
+    dim_cargador = {"largo": 0.06, "alto": 0.03, "profundidad": round(m_fondo, 3)}
 
     marcos: list[dict] = []
     vigas: list[dict] = []
     mensulas: list[dict] = []
+    cargadores: list[dict] = []
 
     for corrida in range(n_corridas):
         z_base = corrida * (m_fondo + m_pasillo)
         z_frente, z_fondo = z_base, z_base + m_fondo
+        z_centro = (z_frente + z_fondo) / 2
 
         xs_marco = [b * m_frente for b in range(n_bays + 1)]
         for x in xs_marco:
@@ -147,6 +187,22 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
                         "posicion": {"x": round(x2, 3), "y": round(ny, 3), "z": round(z, 3)},
                     })
 
+                if tiene_cargadores:
+                    # Un cargador centrado (o dos a 30%/70% del bay si el frente
+                    # es ancho) -- va ENCIMA de las vigas, en medio del rack,
+                    # atravesando de la fila frontal a la trasera.
+                    fracciones = [0.5] if cargadores_por_bay == 1 else [0.3, 0.7]
+                    for frac in fracciones:
+                        cargadores.append({
+                            "sku": sku_cargador, "nivel": nivel_idx,
+                            "posicion": {
+                                "x": round(x1 + (x2 - x1) * frac, 3),
+                                "y": round(ny + peralte_larguero_m, 3),
+                                "z": round(z_centro, 3),
+                            },
+                            "dimensiones": dim_cargador,
+                        })
+
     return {
         "tipo_rack": proyecto.get("especificacion") or layout.get("tipo") or "Rack",
         "peso_maximo_por_nivel_kg": memoria.get("carga_nivel_kg"),
@@ -159,4 +215,5 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         "marcos": marcos,
         "vigas": vigas,
         "mensulas": mensulas,
+        "cargadores": cargadores,
     }

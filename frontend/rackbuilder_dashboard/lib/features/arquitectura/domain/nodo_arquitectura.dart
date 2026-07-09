@@ -36,13 +36,20 @@ class ConexionArquitectura {
 /// Un paso numerado dentro de uno de los dos flujos explicados debajo del
 /// diagrama: la generacion de un diseno y el aprendizaje continuo a partir
 /// de correcciones. Cada paso apunta al mismo `id` usado en ArquitecturaData.nodos
-/// para que la UI pueda resaltarlo si el usuario lo toca.
+/// para que la UI pueda resaltarlo si el usuario lo toca. `relacionados` cubre
+/// nodos que tambien participan en ese paso sin ser el protagonista (ej. Supabase
+/// se escribe/lee en casi todos los pasos, LangSmith observa varios) -- sin esto,
+/// tocar Supabase o LangSmith en el mapa no resaltaba nada en ningun flujo.
 class PasoFlujo {
   final int numero;
   final String nodoId;
   final String titulo;
   final String detalle;
-  const PasoFlujo(this.numero, this.nodoId, this.titulo, this.detalle);
+  final List<String> relacionados;
+  const PasoFlujo(this.numero, this.nodoId, this.titulo, this.detalle, {this.relacionados = const []});
+
+  bool coincideCon(String nodoSeleccionado) =>
+      nodoId == nodoSeleccionado || relacionados.contains(nodoSeleccionado);
 }
 
 /// Contenido estatico -- refleja la arquitectura REAL descrita en
@@ -221,15 +228,20 @@ class ArquitecturaData {
     PasoFlujo(2, "fastapi", "FastAPI recibe la solicitud",
         "El webhook de Telegram entrega el mensaje al backend, que no decide nada, solo orquesta."),
     PasoFlujo(3, "rag", "RAG busca correcciones parecidas",
-        "Se buscan por similitud semantica (Voyage AI) correcciones previas relevantes al tipo de rack pedido."),
+        "Se buscan por similitud semantica (Voyage AI) correcciones previas relevantes al tipo de rack pedido.",
+        relacionados: ["supabase", "langsmith"]),
     PasoFlujo(4, "graph", "Knowledge Graph aporta relaciones aprendidas",
-        "SKUs que se suelen reemplazar, evitar o combinar entre si, acumulados de correcciones pasadas."),
+        "SKUs que se suelen reemplazar, evitar o combinar entre si, acumulados de correcciones pasadas.",
+        relacionados: ["supabase"]),
     PasoFlujo(5, "context_builder", "Context Builder arma el prompt final",
-        "Combina el catalogo filtrado, las correcciones del RAG y las relaciones del grafo en un solo texto."),
+        "Combina el catalogo filtrado, las correcciones del RAG y las relaciones del grafo en un solo texto.",
+        relacionados: ["promotion"]),
     PasoFlujo(6, "claude", "Claude disena el rack",
-        "Un unico turno de razonamiento: dimensiones, despiece, cotizacion -- todo en un JSON estructurado."),
+        "Un unico turno de razonamiento: dimensiones, despiece, cotizacion -- todo en un JSON estructurado.",
+        relacionados: ["langsmith", "supabase"]),
     PasoFlujo(7, "engineering", "Engineering Engine valida (determinista)",
-        "Si hay un error bloqueante (NOM-006/251, carga, factor de seguridad), el diseno regresa a Claude -- maximo 2 intentos."),
+        "Si hay un error bloqueante (NOM-006/251, carga, factor de seguridad), el diseno regresa a Claude -- maximo 2 intentos.",
+        relacionados: ["langsmith"]),
     PasoFlujo(8, "generadores", "Se generan los entregables",
         "PDF de planos, XLSX de despiece y cotizacion, modelo 3D GLB/DAE y renders PNG."),
     PasoFlujo(9, "usuario", "El cliente recibe la respuesta",
@@ -240,16 +252,21 @@ class ArquitecturaData {
   /// termina convirtiendose en conocimiento reutilizable del sistema.
   static const flujoAprendizaje = [
     PasoFlujo(1, "usuario", "Alguien corrige un diseno",
-        "Ej.: cambia un SKU por otro, o marca que dos piezas no deben ir juntas -- via Telegram o el dashboard."),
+        "Ej.: cambia un SKU por otro, o marca que dos piezas no deben ir juntas -- via Telegram o el dashboard.",
+        relacionados: ["fastapi"]),
     PasoFlujo(2, "graph", "SkuDiffExtractor detecta el cambio",
         "Compara el despiece original contra el corregido y extrae que SKU cambio por cual, o que combinacion se evito."),
     PasoFlujo(3, "graph", "Se refuerza la relacion en el grafo",
-        "RPC atomico reforzar_relacion incrementa el contador de esa relacion especifica (reemplaza_por / evitar_con / compatible_con)."),
+        "RPC atomico reforzar_relacion incrementa el contador de esa relacion especifica (reemplaza_por / evitar_con / compatible_con).",
+        relacionados: ["supabase"]),
     PasoFlujo(4, "graph", "El contador cruza umbrales",
-        "5 repeticiones = relacion importante, 20 = candidata a regla, 50 = se promueve a regla permanente."),
+        "5 repeticiones = relacion importante, 20 = candidata a regla, 50 = se promueve a regla permanente.",
+        relacionados: ["supabase"]),
     PasoFlujo(5, "promotion", "Promotion Engine materializa la regla",
-        "Al llegar a 50, la relacion deja de vivir solo como dato del grafo y se escribe como regla en reglas_armado."),
+        "Al llegar a 50, la relacion deja de vivir solo como dato del grafo y se escribe como regla en reglas_armado.",
+        relacionados: ["supabase"]),
     PasoFlujo(6, "context_builder", "La proxima solicitud ya usa lo aprendido",
-        "El Context Builder inyecta la relacion (o la regla ya promovida) directo en el prompt de Claude, sin que nadie la repita manualmente."),
+        "El Context Builder inyecta la relacion (o la regla ya promovida) directo en el prompt de Claude, sin que nadie la repita manualmente.",
+        relacionados: ["supabase", "rag", "claude"]),
   ];
 }

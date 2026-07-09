@@ -1,4 +1,5 @@
 import "../../domain/entities/estadistica_sku_entity.dart";
+import "../../domain/entities/correccion_entity.dart";
 import "../../domain/repositories/estadisticas_repository.dart";
 import "../datasources/estadisticas_remote_datasource.dart";
 
@@ -12,4 +13,8 @@ class EstadisticasRepositoryImpl implements EstadisticasRepository {
 
   @override
   Future<EstadisticaSkuEntity?> getSku(String sku) => _ds.getSku(sku);
+
+  @override
+  Future<List<CorreccionEntity>> getCorrecciones({int limit = 100}) =>
+      _ds.getCorrecciones(limit: limit);
 }

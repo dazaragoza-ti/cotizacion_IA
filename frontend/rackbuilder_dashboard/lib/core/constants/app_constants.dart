@@ -36,4 +36,5 @@ class ApiEndpoints {
   static const String statsSku            = '/stats/sku';
   static const String ragSearch           = '/rag/search';
   static const String ragSync             = '/rag/sync';
+  static const String correcciones        = '/correcciones';
 }

@@ -225,6 +225,25 @@ async def generar_proyecto_pm(
         except Exception as e:
             log.exception("No se pudo guardar en disenos_racks para el visor 3D: %s", e)
 
+        # Precio de cotizacion: nunca confiar en el que Claude copio en su JSON
+        # (puede venir de memoria/RAG desactualizado) -- se sobreescribe con el
+        # precio real y actual de Supabase (catalogo_pm) por codigo de SKU,
+        # misma logica de "ingenieria antes que el modelo" que ya usa el
+        # Validator Engine. Si un codigo no esta en el catalogo, se deja el
+        # precio que trajo Claude en vez de tumbar la cotizacion completa.
+        try:
+            precios_reales = {
+                fila["codigo"]: fila["precio"]
+                for fila in consultar_catalogo_pm()
+                if fila.get("codigo") and fila.get("precio") is not None
+            }
+            for material in proyecto.get("materiales", []) or []:
+                precio_real = precios_reales.get(material.get("codigo"))
+                if precio_real is not None:
+                    material["precio"] = precio_real
+        except Exception as e:
+            log.warning("No se pudo verificar precios contra catalogo_pm, se usan los del JSON: %s", e)
+
         work = Path(tempfile.mkdtemp(prefix="pm_rackbot_"))
         try:
             salidas = await asyncio.to_thread(pipeline.correr_pipeline, proyecto, work)

@@ -35,6 +35,7 @@ import '../../features/estadisticas/data/repositories/estadisticas_repository_im
 import '../../features/estadisticas/domain/repositories/estadisticas_repository.dart';
 import '../../features/estadisticas/domain/usecases/get_top_estadisticas_usecase.dart';
 import '../../features/estadisticas/domain/usecases/get_estadistica_sku_usecase.dart';
+import '../../features/estadisticas/domain/usecases/get_correcciones_usecase.dart';
 import '../../features/estadisticas/presentation/cubit/estadisticas_cubit.dart';
 import '../../features/rag/data/datasources/rag_remote_datasource.dart';
 import '../../features/rag/data/repositories/rag_repository_impl.dart';
@@ -109,7 +110,8 @@ Future<void> setupServiceLocator() async {
       () => EstadisticasRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetTopEstadisticasUsecase(sl()));
   sl.registerLazySingleton(() => GetEstadisticaSkuUsecase(sl()));
-  sl.registerFactory(() => EstadisticasCubit(sl(), sl()));
+  sl.registerLazySingleton(() => GetCorreccionesUsecase(sl()));
+  sl.registerFactory(() => EstadisticasCubit(sl(), sl(), sl()));
 
   // -- RAG (busqueda semantica + sync) ----------------------------------------
   sl.registerLazySingleton<RagRemoteDatasource>(
