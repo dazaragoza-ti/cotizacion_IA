@@ -89,6 +89,8 @@ psql "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgre
 También sigue pendiente el baseline (`0000_baseline.sql`, `pg_dump --schema-only`)
 mencionado en `backend/db/migrations/README.md` — mismo bloqueo de credenciales.
 
+Nota: `0005_rag_match_knowledge.sql` (RPC `match_knowledge` del sistema RAG) es una migración *distinta*, no pendiente — se rescató de un archivo suelto en la raíz del repo y se confirmó aplicada en vivo durante el merge con `origin/josue`. Ver `AI_ENGINEERING_MANUAL.md` para el historial completo de esa reconciliación.
+
 ---
 
 ## Decisiones tomadas en esta ronda
