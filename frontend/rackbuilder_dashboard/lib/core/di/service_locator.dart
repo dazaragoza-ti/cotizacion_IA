@@ -36,6 +36,12 @@ import '../../features/estadisticas/domain/repositories/estadisticas_repository.
 import '../../features/estadisticas/domain/usecases/get_top_estadisticas_usecase.dart';
 import '../../features/estadisticas/domain/usecases/get_estadistica_sku_usecase.dart';
 import '../../features/estadisticas/presentation/cubit/estadisticas_cubit.dart';
+import '../../features/rag/data/datasources/rag_remote_datasource.dart';
+import '../../features/rag/data/repositories/rag_repository_impl.dart';
+import '../../features/rag/domain/repositories/rag_repository.dart';
+import '../../features/rag/domain/usecases/buscar_rag_usecase.dart';
+import '../../features/rag/domain/usecases/sincronizar_rag_usecase.dart';
+import '../../features/rag/presentation/cubit/rag_cubit.dart';
 import '../network/api_client.dart';
 
 final sl = GetIt.instance;
@@ -102,4 +108,13 @@ Future<void> setupServiceLocator() async {
   sl.registerLazySingleton(() => GetTopEstadisticasUsecase(sl()));
   sl.registerLazySingleton(() => GetEstadisticaSkuUsecase(sl()));
   sl.registerFactory(() => EstadisticasCubit(sl(), sl()));
+
+  // -- RAG (busqueda semantica + sync) ----------------------------------------
+  sl.registerLazySingleton<RagRemoteDatasource>(
+      () => RagRemoteDatasourceImpl(sl()));
+  sl.registerLazySingleton<RagRepository>(
+      () => RagRepositoryImpl(sl()));
+  sl.registerLazySingleton(() => BuscarRagUsecase(sl()));
+  sl.registerLazySingleton(() => SincronizarRagUsecase(sl()));
+  sl.registerFactory(() => RagCubit(sl(), sl()));
 }

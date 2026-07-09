@@ -9,6 +9,7 @@ import "../../../catalogo/presentation/cubit/catalogo_cubit.dart";
 import "../../../historial/presentation/cubit/historial_cubit.dart";
 import "../../../alimentar_ia/presentation/cubit/alimentar_ia_cubit.dart";
 import "../../../estadisticas/presentation/cubit/estadisticas_cubit.dart";
+import "../../../rag/presentation/cubit/rag_cubit.dart";
 import "../widgets/topbar_widget.dart";
 import "../widgets/sidebar_widget.dart";
 import "../widgets/analiticas_module.dart";
@@ -17,8 +18,9 @@ import "../../../catalogo/presentation/screens/catalogo_screen.dart";
 import "../../../historial/presentation/screens/historial_screen.dart";
 import "../../../alimentar_ia/presentation/screens/alimentar_ia_screen.dart";
 import "../../../estadisticas/presentation/screens/estadisticas_screen.dart";
+import "../../../rag/presentation/screens/rag_screen.dart";
 
-enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas }
+enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas, rag }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -41,6 +43,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ctx.read<HistorialCubit>().loadHistorial();
       case DashModule.estadisticas:
         ctx.read<EstadisticasCubit>().loadTop();
+      case DashModule.rag:
+        break; // el buscador RAG espera a que el usuario escriba una consulta
       default:
         break;
     }
@@ -61,6 +65,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ctx.read<HistorialCubit>().loadHistorial();
         case DashModule.estadisticas:
           ctx.read<EstadisticasCubit>().loadTop();
+        case DashModule.rag:
+          break;
         default:
           break;
       }
@@ -80,6 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         BlocProvider(create: (_) => sl<HistorialCubit>()),
         BlocProvider(create: (_) => sl<AlimentarIaCubit>()),
         BlocProvider(create: (_) => sl<EstadisticasCubit>()),
+        BlocProvider(create: (_) => sl<RagCubit>()),
       ],
       child: BlocConsumer<DashboardCubit, DashboardState>(
         // Escuchar cuando la conexión se establece y disparar carga del módulo activo
@@ -129,6 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         DashModule.catalogo   => const CatalogoScreen(key: ValueKey("catalogo")),
         DashModule.historial  => const HistorialScreen(key: ValueKey("historial")),
         DashModule.estadisticas => const EstadisticasScreen(key: ValueKey("estadisticas")),
+        DashModule.rag => const RagScreen(key: ValueKey("rag")),
       },
     )),
   );
