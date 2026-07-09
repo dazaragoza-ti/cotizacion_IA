@@ -125,9 +125,13 @@ class _VersionTile extends StatelessWidget {
       ]),
       if (v.historialComentarios.isNotEmpty) ...[
         const SizedBox(height: 8),
-        ...v.historialComentarios.map((c) => Padding(padding: const EdgeInsets.only(bottom: 3, left: 8),
+        // Cada fila guarda el historial ACUMULADO hasta esa version (asi lo arma
+        // diseno_service.py), asi que solo el ultimo elemento es el cambio propio
+        // de esta version -- mostrar la lista completa repetiria los comentarios
+        // de versiones anteriores en cada tarjeta.
+        Padding(padding: const EdgeInsets.only(bottom: 3, left: 8),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("• ", style: TextStyle(color: AppColors.indigo, fontSize: 11)),
-                Expanded(child: Text(c, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)))]))),
+                Expanded(child: Text(v.historialComentarios.last, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)))])),
       ],
       if (v.inputTokens > 0 || v.outputTokens > 0) ...[
         const SizedBox(height: 8),
