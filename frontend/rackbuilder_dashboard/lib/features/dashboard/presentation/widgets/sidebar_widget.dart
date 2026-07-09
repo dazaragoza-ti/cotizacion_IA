@@ -32,6 +32,7 @@ class SidebarWidget extends StatelessWidget {
             NavButton(icon: Icons.compress,       label: "Optimizar Draco CAD",  active: module == DashModule.draco,      onTap: () => onSwitch(DashModule.draco)),
             NavButton(icon: Icons.cloud_upload,   label: "Subir al Catálogo",    active: module == DashModule.catalogo,   onTap: () => onSwitch(DashModule.catalogo)),
             NavButton(icon: Icons.history,        label: "Historial de Diseños", active: module == DashModule.historial,  onTap: () => onSwitch(DashModule.historial)),
+            NavButton(icon: Icons.insights,       label: "Aprendizaje (Estadísticas)", active: module == DashModule.estadisticas, onTap: () => onSwitch(DashModule.estadisticas)),
           ]),
         ),
         const SizedBox(height: 12),

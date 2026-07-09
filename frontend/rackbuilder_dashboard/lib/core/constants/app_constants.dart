@@ -32,4 +32,8 @@ class ApiEndpoints {
   static const String storageEntradas     = '/storage/entradas';
   static const String storageCarpeta      = '/storage/carpeta';
   static const String storageSubirArchivo = '/storage/subir-archivo';
+  static const String statsTop            = '/stats/top';
+  static const String statsSku            = '/stats/sku';
+  static const String ragSearch           = '/rag/search';
+  static const String ragSync             = '/rag/sync';
 }

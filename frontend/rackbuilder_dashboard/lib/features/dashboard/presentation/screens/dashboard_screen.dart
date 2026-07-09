@@ -8,6 +8,7 @@ import "../../../modelos_3d/presentation/cubit/modelos_cubit.dart";
 import "../../../catalogo/presentation/cubit/catalogo_cubit.dart";
 import "../../../historial/presentation/cubit/historial_cubit.dart";
 import "../../../alimentar_ia/presentation/cubit/alimentar_ia_cubit.dart";
+import "../../../estadisticas/presentation/cubit/estadisticas_cubit.dart";
 import "../widgets/topbar_widget.dart";
 import "../widgets/sidebar_widget.dart";
 import "../widgets/analiticas_module.dart";
@@ -15,8 +16,9 @@ import "../../../modelos_3d/presentation/screens/modelos_screen.dart";
 import "../../../catalogo/presentation/screens/catalogo_screen.dart";
 import "../../../historial/presentation/screens/historial_screen.dart";
 import "../../../alimentar_ia/presentation/screens/alimentar_ia_screen.dart";
+import "../../../estadisticas/presentation/screens/estadisticas_screen.dart";
 
-enum DashModule { analiticas, alimentar, draco, catalogo, historial }
+enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -37,6 +39,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ctx.read<CatalogoCubit>().loadCatalogo();
       case DashModule.historial:
         ctx.read<HistorialCubit>().loadHistorial();
+      case DashModule.estadisticas:
+        ctx.read<EstadisticasCubit>().loadTop();
       default:
         break;
     }
@@ -55,6 +59,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ctx.read<CatalogoCubit>().loadCatalogo();
         case DashModule.historial:
           ctx.read<HistorialCubit>().loadHistorial();
+        case DashModule.estadisticas:
+          ctx.read<EstadisticasCubit>().loadTop();
         default:
           break;
       }
@@ -73,6 +79,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         BlocProvider(create: (_) => sl<CatalogoCubit>()),
         BlocProvider(create: (_) => sl<HistorialCubit>()),
         BlocProvider(create: (_) => sl<AlimentarIaCubit>()),
+        BlocProvider(create: (_) => sl<EstadisticasCubit>()),
       ],
       child: BlocConsumer<DashboardCubit, DashboardState>(
         // Escuchar cuando la conexión se establece y disparar carga del módulo activo
@@ -121,6 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         DashModule.draco      => const ModelosScreen(key: ValueKey("draco")),
         DashModule.catalogo   => const CatalogoScreen(key: ValueKey("catalogo")),
         DashModule.historial  => const HistorialScreen(key: ValueKey("historial")),
+        DashModule.estadisticas => const EstadisticasScreen(key: ValueKey("estadisticas")),
       },
     )),
   );
@@ -139,6 +147,7 @@ class _BottomNav extends StatelessWidget {
       (DashModule.draco,      Icons.compress,     "Draco"),
       (DashModule.catalogo,   Icons.cloud_upload, "Catálogo"),
       (DashModule.historial,  Icons.history,      "Historial"),
+      (DashModule.estadisticas, Icons.insights,   "Stats"),
     ];
     return Container(
       decoration: const BoxDecoration(
@@ -180,6 +189,7 @@ class _TabletRail extends StatelessWidget {
       (DashModule.draco,      Icons.compress,     "Draco"),
       (DashModule.catalogo,   Icons.cloud_upload, "Catálogo"),
       (DashModule.historial,  Icons.history,      "Historial"),
+      (DashModule.estadisticas, Icons.insights,   "Stats"),
     ];
     return Container(
       width: 70,

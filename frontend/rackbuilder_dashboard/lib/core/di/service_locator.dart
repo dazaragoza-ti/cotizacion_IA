@@ -30,6 +30,12 @@ import '../../features/alimentar_ia/domain/usecases/listar_entradas_usecase.dart
 import '../../features/alimentar_ia/domain/usecases/crear_carpeta_usecase.dart';
 import '../../features/alimentar_ia/domain/usecases/subir_archivo_usecase.dart';
 import '../../features/alimentar_ia/presentation/cubit/alimentar_ia_cubit.dart';
+import '../../features/estadisticas/data/datasources/estadisticas_remote_datasource.dart';
+import '../../features/estadisticas/data/repositories/estadisticas_repository_impl.dart';
+import '../../features/estadisticas/domain/repositories/estadisticas_repository.dart';
+import '../../features/estadisticas/domain/usecases/get_top_estadisticas_usecase.dart';
+import '../../features/estadisticas/domain/usecases/get_estadistica_sku_usecase.dart';
+import '../../features/estadisticas/presentation/cubit/estadisticas_cubit.dart';
 import '../network/api_client.dart';
 
 final sl = GetIt.instance;
@@ -87,4 +93,13 @@ Future<void> setupServiceLocator() async {
   sl.registerLazySingleton(() => CrearCarpetaUsecase(sl()));
   sl.registerLazySingleton(() => SubirArchivoUsecase(sl()));
   sl.registerFactory(() => AlimentarIaCubit(sl(), sl(), sl()));
+
+  // -- Estadisticas (Sprint 2: aprendizaje continuo) --------------------------
+  sl.registerLazySingleton<EstadisticasRemoteDatasource>(
+      () => EstadisticasRemoteDatasourceImpl(sl()));
+  sl.registerLazySingleton<EstadisticasRepository>(
+      () => EstadisticasRepositoryImpl(sl()));
+  sl.registerLazySingleton(() => GetTopEstadisticasUsecase(sl()));
+  sl.registerLazySingleton(() => GetEstadisticaSkuUsecase(sl()));
+  sl.registerFactory(() => EstadisticasCubit(sl(), sl()));
 }
