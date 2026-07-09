@@ -4,6 +4,7 @@ Funciones auxiliares de Supabase Storage: resolución de nombres de bucket/carpe
 No expone endpoints — eso vive en app/routers/storage.py.
 """
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from ..clients import supabase, supabase_service
@@ -115,23 +116,42 @@ def _infer_modelo_files_from_catalogo(folder_prefix: str | None = None) -> list[
 
             size = 0
             mimetype = "model/gltf-binary"
+            existe = False
             # storage_client.info() falla silenciosamente en muchas versiones del SDK.
-            # Se hace HEAD a la URL pública para obtener Content-Length real.
+            # Se hace HEAD a la URL pública para obtener Content-Length real Y para
+            # confirmar que el objeto sigue existiendo en Storage — catalogo_piezas
+            # puede quedar con una url_modelo_glb huérfana si el archivo se borra
+            # directo en Supabase (sin pasar por /storage/files/{filename}), y antes
+            # esa fila fantasma se mostraba igual con tamaño 0 B en vez de omitirse.
             try:
                 import urllib.request as _req
                 head_req = _req.Request(url, method="HEAD")
                 with _req.urlopen(head_req, timeout=5) as resp:
                     size = int(resp.headers.get("Content-Length") or 0)
                     mimetype = resp.headers.get("Content-Type") or mimetype
+                    existe = True
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    continue  # el archivo ya no existe en Storage -- no sintetizar fila fantasma
+                # otros codigos (403, 500...): no concluyente, se intenta el fallback del SDK
             except Exception:
+                pass
+
+            if not existe:
                 # Fallback: intentar info() del SDK
                 try:
                     info = storage_client.info(relative_path)
                     if isinstance(info, dict):
                         size = int(info.get("size") or info.get("metadata", {}).get("size") or 0)
                         mimetype = info.get("content_type") or info.get("metadata", {}).get("content_type") or mimetype
+                        existe = True
                 except Exception:
                     pass
+
+            if not existe:
+                # No se pudo confirmar por HEAD ni por el SDK que el objeto exista --
+                # mejor omitirlo que mostrar un archivo "fantasma" de 0 B.
+                continue
 
             archivos.append({
                 "name": name,
