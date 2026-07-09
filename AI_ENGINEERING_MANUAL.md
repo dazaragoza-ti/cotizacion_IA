@@ -345,31 +345,41 @@ CorrectionProcessor, cableado en el flujo vivo), esta sesion cerro el resto:
    atomico de relaciones falla (best-effort, se loguea) y `langsmith_run_id`
    no se persiste. Ver instrucciones exactas en
    `backend/db/migrations/README.md`.
-2. **Visor 3D — confirmar despliegue real:** el fix de `DRACOLoader` en
-   `frontend/index.html` ya esta en el codigo (confirmado en esta sesion),
-   pero si el sitio de GitHub Pages no se ha vuelto a desplegar desde este
-   commit, el navegador seguira viendo la version vieja. Verificar
-   directamente en GitHub / probar en incognito.
-3. **`ejemplo_proyecto_demo.json` con errores estructurales reales**
-   (detectado por `engineering/evaluacion.py`): frente/fondo fuera de
-   catalogo, carga excedida, codigos que ya no existen. Dejado a proposito
-   para que el usuario decida si corregirlo o reemplazarlo.
-4. **Bug preexistente en `diseno_service.py`** (no introducido por Sprint 2):
-   importa `consultar_reglas_armado` y `consultar_correcciones_relevantes`
-   desde `reglas_service.py`, pero esas funciones no existen ahi — el modulo
-   falla al importarse. Hoy es inofensivo porque nada mas lo importa (el
-   "Agente de Ensamble rapido" esta inalcanzable/muerto), pero hay que
-   resolverlo antes de reactivar ese modo.
-5. **Dashboard Flutter (`frontend/rackbuilder_dashboard/`) — en progreso en
-   paralelo:** durante esta sesion se detecto trabajo simultaneo sobre este
-   directorio (un worktree `.claude/worktrees/josue-flutter-3d` con commits
-   propios ya empujados a `origin/josue-flutter-3d-viewer`, mas una
-   reorganizacion de carpetas en vivo en el checkout principal). Para no
-   pisar ese trabajo, quedo fuera de este merge — el WIP correspondiente
-   sigue guardado en un `git stash` sin aplicar
-   ("frontend WIP en flujo (reorg de carpetas Flutter en curso)"). Falta:
-   decidir la estructura final de carpetas (hay al menos dos copias del
-   dashboard con distinto grado de avance) y fusionarla explicitamente.
+
+### Resuelto en la sesion de seguimiento (mismo dia)
+
+2. ~~Visor 3D — confirmar despliegue real~~ **Confirmado:** se hizo `curl`
+   directo al sitio de GitHub Pages en vivo
+   (dazaragoza-ti.github.io/cotizacion_IA/index.html) — el fix de
+   `DRACOLoader` YA esta desplegado y es identico al del repo. No requiere
+   ninguna accion.
+3. ~~`ejemplo_proyecto_demo.json` con errores estructurales~~ **Corregido**
+   (revision R1): reconstruido con dimensiones/cantidades calculadas a
+   partir de las formulas reales de `validator_engine.py` y codigos
+   verificados contra el catalogo real. `engineering/evaluacion.py` ahora
+   reporta 3/3 ejemplos validos (antes 2/3), con cero errores y cero
+   advertencias en el nuevo ejemplo.
+4. ~~Bug en `diseno_service.py`~~ **Corregido:** se implementaron
+   `consultar_reglas_armado()` y `consultar_correcciones_relevantes()` en
+   `reglas_service.py` (leen `reglas_armado`/`correcciones_armado` desde
+   Supabase, filtradas por tipo_rack + universales). El modulo ya importa
+   y funciona correctamente contra la base en vivo — sigue "inalcanzable"
+   en el sentido de que nada lo invoca todavia (el Agente de Ensamble
+   rapido no esta cableado a ningun endpoint), pero ya no tiene el bug.
+5. ~~Dashboard Flutter en progreso en paralelo~~ **Fusionado:** el
+   scaffold vacio que trajo `origin/josue` (solo pubspec/README, sin
+   `lib/`) y el WIP local (`lib/` completo, arquitectura por
+   features: `alimentar_ia`, `catalogo`, `dashboard`, `historial`,
+   `modelos_3d`) resultaron ser el MISMO proyecto — se completo agregando
+   el `lib/` faltante. De paso se elimino una version anterior/plana del
+   dashboard que coexistia en el mismo arbol (`lib/screens`,
+   `lib/services`, `lib/widgets`, `lib/models/models.dart`) — confirmado
+   que ningun archivo de `lib/features/*` ni `main.dart` la importaba.
+   Verificado con `flutter pub get` + `flutter analyze`: 0 errores (solo 3
+   warnings preexistentes de imports sin usar). El worktree
+   `.claude/worktrees/josue-flutter-3d` / rama `origin/josue-flutter-3d-viewer`
+   quedan superados por este merge — se pueden limpiar cuando su dueño lo
+   confirme.
 
 ### Decisiones de arquitectura tomadas (para no repetir la discusion)
 
