@@ -1,0 +1,53 @@
+{
+  "proyecto": "PROYECTO EJEMPLO — RACK SIMPLE 1 NIVEL",
+  "clave": "EJ-001",
+  "cliente": "(-) CLIENTE EJEMPLO DE FORMATO",
+  "elaboro": "Xocotzin",
+  "reviso": "Antonio Fuentes",
+  "aprobo": "Rosa Reyes",
+  "fecha": "06/07/2026",
+  "revision": "R0",
+  "material": "Acero rolado en frío",
+  "especificacion": "Rack selectivo carga pesada gota",
+  "calibre": "Cal 14",
+  "dim_corte": "—",
+  "layout": {
+    "tipo": "Selectivo",
+    "modulos_x": 3,
+    "modulos_y": 1,
+    "frente_mm": 1894,
+    "fondo_mm": 612,
+    "pasillo_mm": 3000,
+    "niveles": [0, 1530],
+    "altura_total_mm": 1530,
+    "peralte_larguero_mm": 100
+  },
+  "materiales": [
+    {"pzas": 4, "codigo": "CRG-7112", "descripcion": "CABECERA 61X150 CARGA PESADA GOTA", "color": "AZUL", "obs": "", "precio": 1629.84},
+    {"pzas": 6, "codigo": "LRS-7343", "descripcion": "LARGUERO 1894MM PERALTE 100MM SIN ESCALON", "color": "NARANJA", "obs": "Tarima directa, sin entrepaño", "precio": 945.95},
+    {"pzas": 3, "codigo": "CA-7510", "descripcion": "CARGADOR 61", "color": "—", "obs": "1 por par (frente < 2804mm)", "precio": 177.45},
+    {"pzas": 12, "codigo": "MPR0272", "descripcion": "TORNILLO HEX GALV 5/16\" X 3/4\" ALTA RESISTENCIA (seguridad ménsula)", "color": "—", "obs": "2 por larguero", "precio": 4.89},
+    {"pzas": 32, "codigo": "MPR0313", "descripcion": "TAQUETE TIPO ARPÓN 1/2\" X 4 1/2\"", "color": "—", "obs": "8 por cabecera (altura < 4025mm)", "precio": 32.72},
+    {"pzas": 24, "codigo": "CNP-7931", "descripcion": "CALZA PARA NIVELAR PISO", "color": "—", "obs": "6 por cabecera", "precio": 30.91}
+  ],
+  "memoria": {
+    "tipo_carga": "Carga pesada gota",
+    "tarima_lxa": "1200 x 1000",
+    "peso_tarima_kg": 800,
+    "tarimas_nivel": 3,
+    "carga_nivel_kg": 2400,
+    "carga_modulo_kg": 2400,
+    "cap_marco_kg": 4500,
+    "factor_seguridad": 1.5,
+    "anclaje": "Taquete arpón 1/2\" x 4½ (MPR0313)",
+    "montacargas": ""
+  },
+  "observaciones": [
+    "Ejemplo de referencia para el FORMATO del layout de un rack SIMPLE de 1 solo nivel: niveles=[0, altura_nivel_1] (solo 2 valores, el piso y el nivel de carga).",
+    "modulos_x=3 y modulos_y=1 -> 3 bays en una sola corrida -> 4 marcos totales (modulos_x+1) por corrida.",
+    "Con 1 solo nivel usable (niveles tiene 2 elementos), el despiece NO lleva entrepaño: la tarima va directo sobre el larguero.",
+    "El frente_mm=1894 y fondo_mm=612 son valores de stock reales del catálogo — no redondees a medidas 'bonitas' que no existan en catalogo_pm.json.",
+    "El proyecto debe instalarse sobre piso firme nivelado. Verificar resistencia del piso antes del anclaje."
+  ],
+  "render_path": null
+}
