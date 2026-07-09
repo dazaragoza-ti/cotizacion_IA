@@ -18,7 +18,7 @@ from anthropic import AsyncAnthropic
 
 from ... import config as _app_config  # noqa: F401 — garantiza que el .env del backend ya esté cargado
 from ...services.catalogo_pm_service import consultar_catalogo_pm
-from ..tracing import traceable
+from ..tracing import anotar_run, traceable
 
 log = logging.getLogger("claude_client")
 # app/ai/clients/claude_client.py -> app/ai/ (donde viven prompts/ y knowledge/ como carpetas hermanas)
@@ -144,6 +144,7 @@ async def generar(
     ultimo_error: Exception | None = None
     for intento in range(1, MAX_REINTENTOS + 1):
         try:
+            bloque_catalogo = _bloque_catalogo_pm()
             async with client.messages.stream(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
@@ -155,7 +156,7 @@ async def generar(
                     },
                     {
                         "type": "text",
-                        "text": _bloque_catalogo_pm(),
+                        "text": bloque_catalogo,
                         "cache_control": {"type": "ephemeral"},  # catálogo vivo, se recalcula cada llamada
                     },
                 ],
@@ -173,6 +174,17 @@ async def generar(
             if usage:
                 input_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
                 input_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+            # Sprint 2, Fase 5: mapea el uso real a usage_metadata para que
+            # LangSmith calcule el costo, y adjunta el system prompt real
+            # (antes la traza solo mostraba el mensaje del usuario).
+            anotar_run(
+                usage_metadata={
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                },
+                system_prompt=SYSTEM_PROMPT_BASE + chr(10)*2 + bloque_catalogo,
+            )
             return texto, input_tokens, output_tokens
         except REINTENTABLES as e:
             ultimo_error = e

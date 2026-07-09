@@ -4,6 +4,7 @@ posiciones 3D usando el catálogo de piezas real.
 """
 import json
 from ..clients import supabase, anthropic_client
+from ..ai.tracing import anotar_run, traceable
 from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno, consultar_reglas_armado, consultar_correcciones_relevantes
 
@@ -127,6 +128,7 @@ def validar_diseno(datos_ensamble: dict, catalogo_disponible: list) -> list[str]
     return errores
 
 
+@traceable(name="ensamble.procesar_diseno_auto_correctivo", run_type="llm")
 def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, vendedor_id: str) -> dict:
     """
     Lógica del Agente de Ensamble:
@@ -268,6 +270,22 @@ def procesar_diseno_auto_correctivo(comentario_usuario: str, session_id: str, ve
         tools=[herramienta_guardar_diseno],
         tool_choice={"type": "tool", "name": "guardar_diseno_3d"},
         messages=[{"role": "user", "content": prompt_usuario}]
+    )
+
+    # Sprint 2, Fase 5: esta era la 2da ruta LLM sin instrumentar del proyecto
+    # (el agente rápido de ensamble, separado del proyectista PM) — mapea el
+    # uso real a usage_metadata para costo y adjunta el system prompt real.
+    _usage_previo = response.usage
+    anotar_run(
+        usage_metadata={
+            "input_tokens": (_usage_previo.input_tokens or 0) if _usage_previo else 0,
+            "output_tokens": (_usage_previo.output_tokens or 0) if _usage_previo else 0,
+            "total_tokens": (
+                ((_usage_previo.input_tokens or 0) + (_usage_previo.output_tokens or 0))
+                if _usage_previo else 0
+            ),
+        },
+        system_prompt=system_prompt,
     )
 
     tool_calls = [c for c in response.content if c.type == "tool_use"]

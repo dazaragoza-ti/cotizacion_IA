@@ -1,5 +1,5 @@
 """
-Tests del planificador de aprendizaje (Sprint 2, Fase 1) — lógica pura, sin BD.
+Tests del planificador de aprendizaje (Sprint 2, Fase 1/3) — lógica pura, sin BD.
 
 Corre con: `python backend/tests/test_learning.py`
 """
@@ -14,6 +14,8 @@ from app.engineering.learning import (
     metricas_de_uso,
     planificar_aprendizaje,
     RELACION_REEMPLAZO,
+    RELACION_COMPATIBLE,
+    RELACION_EVITAR,
 )
 from app.engineering.sku_diff import diff_skus
 
@@ -34,6 +36,24 @@ def test_eliminado_genera_rechazo():
     diff = diff_skus(_P([("TEN-1", 4), ("CA-9", 2)]), _P([("CA-9", 2)]))
     plan = planificar_aprendizaje(diff)
     assert ("TEN-1", "veces_rechazado") in plan.metricas
+    # CA-9 (otra familia) siguió presente cuando se quitó TEN-1 → evitar_con.
+    assert plan.relaciones == [("TEN-1", RELACION_EVITAR, "CA-9")]
+
+
+def test_reemplazo_genera_compatible_con_resto_del_proyecto():
+    diff = diff_skus(
+        _P([("LRS7355", 8), ("CA-9", 2)]),
+        _P([("LRS7410", 8), ("CA-9", 2)]),
+    )
+    plan = planificar_aprendizaje(diff)
+    assert ("LRS7410", RELACION_COMPATIBLE, "CA-9") in plan.relaciones
+
+
+def test_evitar_con_no_empareja_misma_familia():
+    # CA-1 y CA-9 son de la misma familia ("CA") — no deben generar evitar_con
+    # entre sí (son alternativas, no un combo real).
+    diff = diff_skus(_P([("CA-1", 1), ("CA-9", 2)]), _P([("CA-9", 2)]))
+    plan = planificar_aprendizaje(diff)
     assert plan.relaciones == []
 
 

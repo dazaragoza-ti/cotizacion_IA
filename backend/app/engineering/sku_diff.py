@@ -33,13 +33,19 @@ def normalizar_sku(codigo: str | None) -> str:
     return _SUFIJO_COLOR.sub("", codigo.strip().upper())
 
 
-def _familia(sku: str) -> str:
-    """Prefijo alfabético del SKU, usado para emparejar reemplazos.
+def familia(sku: str) -> str:
+    """Prefijo alfabético del SKU, usado para emparejar reemplazos y para
+    decidir si dos SKUs son de categorías distintas (candidatos a
+    evitar_con/compatible_con — ver learning.py).
 
     'LRS7355' y 'LRS7410' comparten familia 'LRS' → candidatos a reemplazo.
     """
     m = _PREFIJO_FAMILIA.match(sku)
     return m.group(0) if m else sku
+
+
+# Alias privado retro-compatible (uso interno de este módulo).
+_familia = familia
 
 
 def extraer_piezas(proyecto: dict | None) -> dict[str, int]:
@@ -73,6 +79,9 @@ class DiffSku:
     eliminados: list[str] = field(default_factory=list)
     # (sku, pzas_antes, pzas_despues) para el mismo SKU que cambió de cantidad
     cambios_cantidad: list[tuple[str, int, int]] = field(default_factory=list)
+    # SKUs presentes en ambas versiones sin cambiar (el "resto" del proyecto),
+    # usado como contexto para inferir evitar_con/compatible_con (ver learning.py).
+    sin_cambio: list[str] = field(default_factory=list)
 
     @property
     def hubo_cambio_de_piezas(self) -> bool:
@@ -106,6 +115,7 @@ def diff_skus(antes: dict | None, despues: dict | None) -> DiffSku:
 
     eliminados = [s for s in p_antes if s not in p_despues]
     agregados = [s for s in p_despues if s not in p_antes]
+    sin_cambio = [s for s in p_despues if s in p_antes]
 
     cambios_cantidad = [
         (s, p_antes[s], p_despues[s])
@@ -141,4 +151,5 @@ def diff_skus(antes: dict | None, despues: dict | None) -> DiffSku:
         agregados=agr_restantes,
         eliminados=elim_restantes,
         cambios_cantidad=cambios_cantidad,
+        sin_cambio=sin_cambio,
     )

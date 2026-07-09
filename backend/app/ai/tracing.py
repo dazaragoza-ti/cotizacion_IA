@@ -60,3 +60,32 @@ def tracing_activo() -> bool:
 
 # Este es el decorador que se usa en el resto del proyecto: `from app.ai.tracing import traceable`.
 traceable = _traceable_real if _LANGSMITH_DISPONIBLE else _traceable_noop
+
+
+def anotar_run(*, usage_metadata: dict | None = None, **metadata) -> None:
+    """
+    Adjunta información al run @traceable activo (Sprint 2, Fase 5):
+
+    - `usage_metadata={"input_tokens": ..., "output_tokens": ..., "total_tokens": ...}`
+      para que LangSmith calcule el COSTO real de la llamada (antes solo se veían
+      tokens sueltos, sin costo).
+    - cualquier otro kwarg (p. ej. `system_prompt=...`) se agrega como metadata
+      extra visible en la traza.
+
+    No-op si LangSmith no está instalado/activo o si se llama fuera de una
+    función @traceable (nunca debe romper el flujo real — es puramente
+    observabilidad).
+    """
+    if not _LANGSMITH_DISPONIBLE:
+        return
+    try:
+        from langsmith.run_helpers import get_current_run_tree
+        run_tree = get_current_run_tree()
+        if run_tree is None:
+            return
+        if usage_metadata is not None:
+            run_tree.set(usage_metadata=usage_metadata)
+        if metadata:
+            run_tree.set(metadata=metadata)
+    except Exception:  # noqa: BLE001 — tracing nunca debe tumbar el flujo real
+        pass

@@ -16,6 +16,7 @@ import os
 import shutil
 import tempfile
 import urllib.parse
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -112,11 +113,16 @@ async def generar_proyecto_pm(
     errores_bloqueantes: list[str] = []
     avisos: list[str] = []
 
+    # Sprint 2, Fase 5: run_id generado de antemano para poder correlacionar
+    # la fila que se guarda en disenos_racks con su traza en LangSmith.
+    langsmith_run_id = uuid.uuid4()
+
     for intento in range(1, MAX_INTENTOS_DISENO + 1):
         try:
             texto, input_tokens, output_tokens = await claude_client.generar(
                 descripcion_para_claude, imagenes, pdfs,
                 langsmith_extra={
+                    "run_id": langsmith_run_id,
                     "metadata": {
                         "session_id": session_id, "tg_user_id": tg_user_id,
                         "tg_username": tg_username, "n_imagenes": n_imgs, "n_pdfs": n_pdfs,
@@ -238,6 +244,18 @@ async def generar_proyecto_pm(
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }).execute()
+
+            # Best-effort y en un update aparte: si la migración 0004 (columna
+            # langsmith_run_id) todavía no está aplicada, el insert de arriba
+            # ya se guardó bien y esto simplemente no hace nada.
+            try:
+                supabase.table("disenos_racks").update({
+                    "langsmith_run_id": str(langsmith_run_id),
+                }).eq("session_id", session_id).eq("version_actual", proxima_version).execute()
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "No se pudo persistir langsmith_run_id (¿falta migración 0004?): %s", e
+                )
 
             sb_url = os.getenv("SUPABASE_URL", "")
             sb_key = os.getenv("SUPABASE_KEY", "")

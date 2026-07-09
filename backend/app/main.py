@@ -10,7 +10,7 @@ from .config import CORS_ORIGINS
 from .cors import _LocalhostCORSMiddleware
 from .telegram.bot import lifespan
 
-from .routers import storage, catalogo, disenos, sistema, correcciones, rag
+from .routers import storage, catalogo, disenos, sistema, correcciones, rag, stats
 
 app = FastAPI(
     title="RackBuilder 3D API",
@@ -34,3 +34,4 @@ app.include_router(catalogo.router)
 app.include_router(disenos.router)
 app.include_router(correcciones.router)
 app.include_router(rag.router)
+app.include_router(stats.router)

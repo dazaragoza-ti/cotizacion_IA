@@ -12,6 +12,7 @@ from typing import Any
 
 from app.ai.rag.repository import repository
 from app.ai.rag.embeddings import embedding_service
+from app.ai.tracing import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,12 @@ class VectorStore:
             "embedding": embedding,
         })
 
+    @traceable(name="rag.search", run_type="retriever")
     def search(self, query: str, top_k: int = 8, tipo: str | None = None) -> list[dict]:
-        """Busca los chunks más parecidos semánticamente a `query` (usa el RPC match_knowledge en Supabase)."""
+        """Busca los chunks más parecidos semánticamente a `query` (usa el RPC
+        match_knowledge en Supabase). Trazado como retriever (Sprint 2, Fase 5):
+        @traceable captura automáticamente query/top_k/tipo como inputs y la
+        lista de chunks (con su score e id) como outputs de la traza."""
         embedding = embedding_service.embed_query(query)
         resultado = repository.search(embedding, top_k=top_k, tipo=tipo)
         return resultado.data or []

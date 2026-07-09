@@ -12,9 +12,10 @@ alimenta todo el ecosistema:
         ↓
     métricas por SKU       (app/engineering/metrics.py → knowledge_stats)
         ↓
-    grafo: reemplaza_por   (knowledge_edges, con confidence reforzada)
+    grafo: reemplaza_por / evitar_con / compatible_con (knowledge_edges,
+           upsert atómico vía RPC reforzar_relacion — migración 0003)
         ↓
-    promoción a regla      (Fase 4 — parcial: marca `validada` al llegar al umbral)
+    promoción a regla      (app/engineering/promotion.py → reglas_armado)
 
 Cada paso es best-effort: si uno falla (migración sin aplicar, Supabase caído),
 se loguea y el resto continúa; nunca rompe la respuesta al cliente.
@@ -25,13 +26,13 @@ import logging
 from dataclasses import dataclass
 
 from app.ai.rag.graph import knowledge_graph
-from app.ai.rag.repository import repository
 from app.engineering import metrics
 from app.engineering.learning import (
     metricas_de_uso,
     planificar_aprendizaje,
     PlanAprendizaje,
 )
+from app.engineering.promotion import promotion_engine
 from app.engineering.sku_diff import diff_skus, DiffSku
 from app.services import correcciones_pm_service as correcciones
 
@@ -115,45 +116,26 @@ class CorrectionProcessor:
             except Exception as e:  # noqa: BLE001
                 log.warning("no se pudo reforzar %s -%s-> %s: %s", origen, relacion, destino, e)
 
-    def _confidence(self, ocurrencias: int) -> float:
-        return min(0.95, ocurrencias / self.UMBRAL_CONFIDENCE)
-
     def _reforzar_relacion(
         self, origen: str, relacion: str, destino: str, correccion_id: int | None
     ) -> None:
-        """Crea o refuerza una arista SKU→SKU en knowledge_edges.
-
-        Hoy add_relation() hace INSERT siempre, así que buscamos la arista
-        existente y la actualizamos (select+update). La migración 0002 añade el
-        índice único que permitirá hacer esto atómico vía upsert más adelante.
-        """
+        """Crea o refuerza una arista SKU→SKU en knowledge_edges de forma atómica
+        (RPC reforzar_relacion, migración 0003 — reemplaza el select+update racy
+        de antes) y, si cruza el umbral de promoción, la materializa como regla
+        permanente vía PromotionEngine."""
         knowledge_graph.add_entity("sku", origen, origen)
         knowledge_graph.add_entity("sku", destino, destino)
 
-        existentes = (knowledge_graph.get_relations("sku", origen).data or [])
-        match = next(
-            (e for e in existentes
-             if e.get("relation") == relacion and e.get("to_id") == destino),
-            None,
+        resultado = knowledge_graph.upsert_relation(
+            "sku", origen, relacion, "sku", destino,
+            correccion_id=correccion_id,
+            origen="correccion",
+            umbral_confidence=self.UMBRAL_CONFIDENCE,
+            umbral_promocion=self.UMBRAL_PROMOCION,
         )
-
-        if match:
-            meta = dict(match.get("metadata") or {})
-            ocurrencias = int(meta.get("ocurrencias", 1)) + 1
-            meta.update(ocurrencias=ocurrencias, ultima_correccion_id=correccion_id)
-            repository.db.table("knowledge_edges").update({
-                "metadata": meta,
-                "confidence": self._confidence(ocurrencias),
-                "validada": ocurrencias >= self.UMBRAL_PROMOCION,
-            }).eq("id", match["id"]).execute()
-        else:
-            knowledge_graph.add_relation(
-                "sku", origen, relacion, "sku", destino,
-                metadata={"ocurrencias": 1, "ultima_correccion_id": correccion_id},
-                confidence=self._confidence(1),
-                origen="correccion",
-                validada=False,
-            )
+        estado = promotion_engine.procesar(resultado)
+        if estado:
+            log.info("Relación %s -%s-> %s en estado '%s'", origen, relacion, destino, estado)
 
 
 correction_processor = CorrectionProcessor()

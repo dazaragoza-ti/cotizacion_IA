@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from app.engineering.sku_diff import normalizar_sku
 
 log = logging.getLogger("validador")
 BASE = Path(__file__).resolve().parent
@@ -149,11 +150,12 @@ def _es_carga_pesada(proyecto: dict) -> bool:
 
 
 def _codigo_base(codigo: str) -> str:
-    """Quita sufijos de color (-AZ, -NA, -AC, -GA, -AM, etc.) del código."""
-    if not codigo:
-        return ""
-    # Sufijos típicos: 2-3 letras al final separados por guion
-    return re.sub(r"-(AZ|NA|AC|GA|AM|VR|GR|BL|RJ)$", "", codigo, flags=re.IGNORECASE)
+    """Quita sufijos de color (-AZ, -NA, -AC, -GA, -AM, etc.) del código.
+
+    Delegado al normalizador único compartido con sku_diff.py (antes había dos
+    regex idénticas mantenidas por separado — TODO(sprint2) resuelto: Fase 0/9).
+    """
+    return normalizar_sku(codigo)
 
 
 def _contar_por_prefijo(materiales: list[dict], prefijo: str) -> int:
