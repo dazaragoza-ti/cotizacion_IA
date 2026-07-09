@@ -13,6 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
     
     <!-- Cliente de Supabase para suscripción Realtime -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -31,9 +32,42 @@
             height: 100% !important;
         }
         /* Estilizar scrollbars delgados para tema claro */
-        ::-webkit-scrollbar { width: 4px; } 
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+        /* Botones de control de la vista 3D (presets de cámara / toggles) */
+        .viewer-btn {
+            background: rgba(255,255,255,0.92);
+            border: 1px solid #e2e8f0;
+            color: #475569;
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .viewer-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .viewer-btn.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+
+        /* Panel flotante de detalle de la pieza seleccionada */
+        #pieza-info-panel {
+            position: absolute;
+            bottom: 14px;
+            left: 14px;
+            z-index: 15;
+            background: rgba(255,255,255,0.97);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 10px 14px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            max-width: 260px;
+        }
+        canvas.piece-hover { cursor: pointer; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen font-sans flex flex-col">
@@ -148,24 +182,41 @@
 
         <!-- Panel Derecho: Visor 3D Interactivo (8 Columnas - Fondo Blanco) -->
         <section class="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col min-h-[500px] relative">
-            <div class="absolute top-6 left-6 z-10 flex items-center space-x-2">
+            <div class="absolute top-6 left-6 z-10 flex items-center flex-wrap gap-2 max-w-[80%]">
                 <span class="bg-white/90 border border-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-full shadow flex items-center">
                     <span class="h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
                     Vista Interactiva 3D
                 </span>
-                <button id="btn-reset" class="bg-white/90 hover:bg-slate-50 text-xs px-3 py-1.5 rounded-full border border-slate-200 shadow transition flex items-center gap-1.5 text-slate-600">
-                    <i class="fa-solid fa-arrows-spin"></i> Reset Cámara
-                </button>
+                <button id="btn-reset" class="viewer-btn"><i class="fa-solid fa-arrows-spin"></i> Reset</button>
+                <button id="btn-vista-top" class="viewer-btn" title="Vista superior"><i class="fa-solid fa-square"></i> Superior</button>
+                <button id="btn-vista-front" class="viewer-btn" title="Vista frontal"><i class="fa-solid fa-square"></i> Frontal</button>
+                <button id="btn-vista-side" class="viewer-btn" title="Vista lateral"><i class="fa-solid fa-square"></i> Lateral</button>
+                <button id="btn-wireframe" class="viewer-btn" title="Alternar wireframe"><i class="fa-solid fa-diagram-project"></i> Wireframe</button>
+                <button id="btn-autorotate" class="viewer-btn" title="Rotación automática"><i class="fa-solid fa-rotate"></i> Auto-rotar</button>
+                <button id="btn-fullscreen" class="viewer-btn" title="Pantalla completa"><i class="fa-solid fa-expand"></i></button>
             </div>
 
             <!-- Contenedor del Renderizado de Three.js -->
             <div id="canvas-container" class="flex-1 rounded-lg overflow-hidden bg-white border border-slate-100 shadow-inner">
                 <!-- Three.js Canvas se monta dinámicamente aquí -->
+
+                <!-- Panel de detalle de la pieza seleccionada (click sobre un componente) -->
+                <div id="pieza-info-panel" class="hidden">
+                    <div class="flex justify-between items-start gap-3">
+                        <div>
+                            <span class="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Pieza seleccionada</span>
+                            <span id="pieza-info-sku" class="block font-mono font-bold text-indigo-600 text-sm">-</span>
+                        </div>
+                        <button id="btn-cerrar-info" class="text-slate-400 hover:text-slate-600 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <p id="pieza-info-nombre" class="text-xs text-slate-600 mt-1">-</p>
+                    <p id="pieza-info-dims" class="text-[11px] text-slate-400 font-mono mt-1">-</p>
+                </div>
             </div>
-            
+
             <div class="mt-3 flex justify-between items-center text-xs text-slate-400 px-2 font-medium">
-                <span><i class="fa-solid fa-circle-info mr-1"></i> Arrastra para orbitar • Scroll para zoom • Clic derecho para desplazar</span>
-                <span id="render-stats" class="text-slate-500 font-mono">Componentes renderizados: 0</span>
+                <span><i class="fa-solid fa-circle-info mr-1"></i> Arrastra para orbitar • Scroll para zoom • Clic derecho para desplazar • Clic izquierdo para seleccionar pieza</span>
+                <span id="render-stats" class="text-slate-500 font-mono">Componentes: 0 · 0 FPS</span>
             </div>
 
             <!-- Loading overlay -->
@@ -191,8 +242,70 @@
         let supabaseClient = null;
         let targetSessionId = null; // Variable global para sincronizar por id de sesión
         let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
+        let selectedMesh = null; // Pieza actualmente seleccionada (highlight + panel de info)
+        let wireframeOn = false;
         const container = document.getElementById('canvas-container');
         const loader = new THREE.GLTFLoader();
+        // Los .glb del catálogo se comprimen con Draco (módulo "Optimizar Draco
+        // CAD" del backend) — sin este decodificador, GLTFLoader falla al
+        // parsear CUALQUIER modelo comprimido y cae siempre al fallback geométrico.
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        loader.setDRACOLoader(dracoLoader);
+
+        // Rendimiento: los racks reutilizan el mismo SKU muchas veces (ej. 20 vigas
+        // idénticas). Sin caché, cada instancia repetía la descarga + decodificación
+        // Draco del mismo .glb. Se descarga/parsea una sola vez por URL y las demás
+        // instancias son clones baratos (comparten geometría, clonan solo el material).
+        const modeloTemplateCache = new Map(); // url -> Promise<THREE.Object3D>
+        function cargarModeloCacheado(url) {
+            if (!modeloTemplateCache.has(url)) {
+                const promesa = new Promise((resolve, reject) => {
+                    loader.load(url, (gltf) => resolve(gltf.scene), undefined, reject);
+                });
+                // Si falla, no dejar la rejection cacheada para siempre — la próxima
+                // pieza con ese SKU debe poder reintentar la descarga.
+                promesa.catch(() => modeloTemplateCache.delete(url));
+                modeloTemplateCache.set(url, promesa);
+            }
+            return modeloTemplateCache.get(url);
+        }
+
+        // Materiales de fallback reutilizados por tipo (evita crear un material nuevo
+        // por cada caja procedural cuando el catálogo no tiene modelo .glb).
+        const fallbackMaterialCache = new Map(); // colorHex -> THREE.MeshStandardMaterial
+        function materialFallbackDe(colorHex) {
+            if (!fallbackMaterialCache.has(colorHex)) {
+                fallbackMaterialCache.set(colorHex, new THREE.MeshStandardMaterial({
+                    color: colorHex, roughness: 0.5, metalness: 0.2, transparent: true, opacity: 0.65,
+                }));
+            }
+            return fallbackMaterialCache.get(colorHex);
+        }
+
+        // Libera geometrías/materiales GPU antes de descartar un objeto — sin esto,
+        // cada diseño nuevo recibido por Realtime fugaba memoria de video porque
+        // objectsGroup.remove() solo desengancha el nodo de la escena, no libera
+        // los buffers de GPU que Three.js reservó para él.
+        function disposeObject3D(root) {
+            root.traverse((child) => {
+                if (!child.isMesh) return;
+                if (child.userData.geometriaCompartida) {
+                    // Geometría del template cacheado (modeloTemplateCache): se reusa
+                    // para futuras piezas del mismo SKU, no se libera. El material SÍ
+                    // es un clon propio de esta instancia (para poder resaltarla sin
+                    // afectar a sus hermanas) y sus texturas son referencias compartidas
+                    // con el template — se libera el material, nunca sus texturas.
+                    const materiales = Array.isArray(child.material) ? child.material : [child.material];
+                    materiales.forEach((mat) => mat?.dispose());
+                } else {
+                    // Caja fallback: geometría y posición son propias de esta instancia,
+                    // pero el material viene de fallbackMaterialCache (compartido por
+                    // tipo) y se reusa en el próximo diseño — no se libera.
+                    child.geometry?.dispose();
+                }
+            });
+        }
 
         function debugLog(mensaje, esError = false) {
             const consola = document.getElementById('console-log');
@@ -215,9 +328,14 @@
             // Inicializar Renderizador con Antialiasing para máxima calidad visual
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            // Cap a 2x: en pantallas 4K/móviles de alta densidad, devicePixelRatio (3-4x)
+            // dispara el conteo de fragmentos a renderizar sin ganancia visual perceptible.
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.05;
             container.appendChild(renderer.domElement);
 
             // Controles de Órbita
@@ -269,10 +387,21 @@
             checarAutoLoginURL();
         }
 
+        // Contador de FPS liviano (sin librerías externas) para visibilizar rendimiento
+        let fpsFrames = 0, fpsUltimoTs = performance.now(), fpsActual = 0;
         function animate() {
             requestAnimationFrame(animate);
             if (controls) controls.update();
             if (renderer && scene && camera) renderer.render(scene, camera);
+
+            fpsFrames++;
+            const ahora = performance.now();
+            if (ahora - fpsUltimoTs >= 1000) {
+                fpsActual = Math.round((fpsFrames * 1000) / (ahora - fpsUltimoTs));
+                fpsFrames = 0;
+                fpsUltimoTs = ahora;
+                actualizarContadorPiezas();
+            }
         }
 
         // Función global para redimensionar el canvas de forma adaptativa
@@ -285,14 +414,132 @@
             renderer.setSize(w, h);
         }
 
-        // Manejo adaptativo de ventanas
+        // Manejo adaptativo de ventanas: window.resize no cubre cambios de tamaño del
+        // contenedor causados por el propio layout de Tailwind (ej. al mostrar/ocultar
+        // el panel lateral), así que se observa el contenedor directamente.
         window.addEventListener('resize', resizeCanvas);
+        if (window.ResizeObserver) {
+            new ResizeObserver(() => resizeCanvas()).observe(container);
+        }
 
         document.getElementById('btn-reset').addEventListener('click', () => {
             if (camera && controls) {
                 camera.position.set(5, 4, 9);
                 enfocarEscena();
             }
+        });
+
+        // --- CONTROLES DE VISTA: presets de cámara, wireframe, auto-rotar, fullscreen ---
+        function radioEscena() {
+            if (!objectsGroup || objectsGroup.children.length === 0) return 6;
+            const bbox = new THREE.Box3().setFromObject(objectsGroup);
+            const size = new THREE.Vector3();
+            bbox.getSize(size);
+            return Math.max(size.x, size.y, size.z, 3) * 1.6;
+        }
+
+        function irAVista(preset) {
+            if (!camera || !controls) return;
+            const r = radioEscena();
+            const centro = controls.target.clone();
+            const posiciones = {
+                top:   new THREE.Vector3(centro.x, centro.y + r, centro.z + 0.01),
+                front: new THREE.Vector3(centro.x, centro.y, centro.z + r),
+                side:  new THREE.Vector3(centro.x + r, centro.y, centro.z),
+            };
+            const destino = posiciones[preset];
+            if (destino) camera.position.copy(destino);
+            controls.update();
+        }
+        document.getElementById('btn-vista-top').addEventListener('click', () => irAVista('top'));
+        document.getElementById('btn-vista-front').addEventListener('click', () => irAVista('front'));
+        document.getElementById('btn-vista-side').addEventListener('click', () => irAVista('side'));
+
+        document.getElementById('btn-wireframe').addEventListener('click', (ev) => {
+            wireframeOn = !wireframeOn;
+            objectsGroup.traverse((child) => {
+                if (!child.isMesh) return;
+                const materiales = Array.isArray(child.material) ? child.material : [child.material];
+                materiales.forEach((mat) => { if (mat) mat.wireframe = wireframeOn; });
+            });
+            ev.currentTarget.classList.toggle('active', wireframeOn);
+        });
+
+        document.getElementById('btn-autorotate').addEventListener('click', (ev) => {
+            controls.autoRotate = !controls.autoRotate;
+            controls.autoRotateSpeed = 2.2;
+            ev.currentTarget.classList.toggle('active', controls.autoRotate);
+        });
+
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+            const seccion = container.closest('section');
+            if (!document.fullscreenElement) {
+                (seccion || container).requestFullscreen?.().then(() => setTimeout(resizeCanvas, 100));
+            } else {
+                document.exitFullscreen?.().then(() => setTimeout(resizeCanvas, 100));
+            }
+        });
+        document.addEventListener('fullscreenchange', () => setTimeout(resizeCanvas, 100));
+
+        // --- SELECCIÓN DE PIEZAS: raycaster sobre clic dentro del canvas ---
+        const raycaster = new THREE.Raycaster();
+        const pointerNDC = new THREE.Vector2();
+
+        // El material de una pieza puede ser compartido (cajas fallback reutilizan
+        // materialFallbackDe por tipo) — nunca se muta el material original para
+        // resaltar la selección, porque afectaría a todas las piezas hermanas que
+        // lo comparten. En su lugar se intercambia por un clon temporal "resaltado"
+        // y se restaura el original al deseleccionar.
+        function limpiarSeleccion() {
+            if (selectedMesh) {
+                const resaltado = selectedMesh.material;
+                selectedMesh.material = selectedMesh.userData.materialAntesDeSeleccion;
+                delete selectedMesh.userData.materialAntesDeSeleccion;
+                (Array.isArray(resaltado) ? resaltado : [resaltado]).forEach((mat) => mat?.dispose());
+                selectedMesh = null;
+            }
+            document.getElementById('pieza-info-panel').classList.add('hidden');
+        }
+
+        function seleccionarMesh(mesh) {
+            limpiarSeleccion();
+            selectedMesh = mesh;
+            mesh.userData.materialAntesDeSeleccion = mesh.material;
+            const resaltado = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
+            (Array.isArray(resaltado) ? resaltado : [resaltado]).forEach((mat) => mat?.emissive?.setHex(0x4f46e5));
+            mesh.material = resaltado;
+
+            const info = mesh.userData?.piezaInfo || {};
+            document.getElementById('pieza-info-sku').innerText = info.sku || 'Sin SKU';
+            document.getElementById('pieza-info-nombre').innerText = info.nombre || (info.tipo ? `Tipo: ${info.tipo}` : 'Pieza sin metadatos');
+            document.getElementById('pieza-info-dims').innerText = info.dims || '';
+            document.getElementById('pieza-info-panel').classList.remove('hidden');
+        }
+
+        document.getElementById('btn-cerrar-info').addEventListener('click', limpiarSeleccion);
+
+        container.addEventListener('click', (ev) => {
+            if (!renderer || !camera || !objectsGroup) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointerNDC.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+            pointerNDC.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointerNDC, camera);
+            const hits = raycaster.intersectObjects(objectsGroup.children, true);
+            if (hits.length > 0 && hits[0].object.isMesh) {
+                seleccionarMesh(hits[0].object);
+            } else {
+                limpiarSeleccion();
+            }
+        });
+
+        container.addEventListener('mousemove', (ev) => {
+            if (!renderer || !camera || !objectsGroup) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointerNDC.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+            pointerNDC.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointerNDC, camera);
+            const hover = raycaster.intersectObjects(objectsGroup.children, true).length > 0;
+            renderer.domElement.classList.toggle('piece-hover', hover);
         });
 
 
@@ -325,8 +572,8 @@
             // Si la pieza existe y tiene una URL de modelo GLB válida en Supabase, la renderizamos de forma limpia
             if (piezaData && piezaData.url_modelo_glb) {
                 let urlModelo = piezaData.url_modelo_glb.trim();
-                
-                // NORMALIZACIÓN DE URL DE RED: 
+
+                // NORMALIZACIÓN DE URL DE RED:
                 try {
                     const decodedUrl = decodeURIComponent(urlModelo);
                     urlModelo = encodeURI(decodedUrl)
@@ -337,16 +584,24 @@
                 }
 
                 debugLog(`Cargando modelo real para ${comp.sku}...`);
-                loader.load(urlModelo, 
-                    (gltf) => {
-                        const modelo = gltf.scene;
-                        
-                        // Habilitar sombras para todo el modelo
+                cargarModeloCacheado(urlModelo).then(
+                    (template) => {
+                        // Clon liviano: comparte geometrías/texturas con el template ya
+                        // parseado y solo instancia materiales propios (para poder
+                        // resaltar la pieza al seleccionarla sin afectar a sus hermanas).
+                        const modelo = template.clone(true);
                         modelo.traverse((child) => {
-                            if (child.isMesh) {
-                                child.castShadow = true;
-                                child.receiveShadow = true;
-                            }
+                            if (!child.isMesh) return;
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            child.userData.geometriaCompartida = true;
+                            child.material = Array.isArray(child.material)
+                                ? child.material.map((m) => m.clone())
+                                : child.material.clone();
+                            child.userData.piezaInfo = {
+                                sku: comp.sku, nombre: piezaData.nombre, tipo,
+                                dims: `${piezaData.longitud_metros ?? '?'}m x ${piezaData.altura_metros ?? '?'}m x ${piezaData.profundidad_metros ?? '?'}m`,
+                            };
                         });
 
                         // CARGA DIRECTA Y PURA:
@@ -366,9 +621,8 @@
                         actualizarContadorPiezas();
                         enfocarEscena();
                     },
-                    undefined,
                     (error) => {
-                        debugLog(`Fallo al cargar GLB para ${comp.sku}. Usando fallback geométrico.`, true);
+                        debugLog(`Fallo al cargar GLB para ${comp.sku}: ${error?.message || error}. Usando fallback geométrico.`, true);
                         renderizarFallback(comp, tipo, materialColor, piezaData);
                     }
                 );
@@ -388,19 +642,19 @@
             const posY = parseFloat(comp.posicion?.y ?? 0);
             const posZ = parseFloat(comp.posicion?.z ?? 0);
 
-            // Representación técnica de volumen mediante un prisma regular semitransparente
+            // Representación técnica de volumen mediante un prisma regular semitransparente.
+            // Material reutilizado por color/tipo — no tiene sentido un THREE.Material
+            // nuevo por cada caja idéntica cuando un rack puede traer decenas de ellas.
             const geometry = new THREE.BoxGeometry(largo, alto, prof);
-            const material = new THREE.MeshStandardMaterial({ 
-                color: colorHex, 
-                roughness: 0.5, 
-                metalness: 0.2,
-                transparent: true,
-                opacity: 0.65
-            });
+            const material = materialFallbackDe(colorHex);
             const mesh = new THREE.Mesh(geometry, material);
             mesh.position.set(posX, posY + (alto / 2), posZ); // Centrado en su altura respecto al suelo cartesiano
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            mesh.userData.piezaInfo = {
+                sku: comp.sku, nombre: piezaData?.nombre, tipo,
+                dims: `${largo.toFixed(2)}m x ${alto.toFixed(2)}m x ${prof.toFixed(2)}m (fallback)`,
+            };
             objectsGroup.add(mesh);
 
             actualizarContadorPiezas();
@@ -412,7 +666,7 @@
             objectsGroup.traverse((child) => {
                 if (child.isMesh) total++;
             });
-            document.getElementById('render-stats').innerText = `Componentes renderizados: ${total}`;
+            document.getElementById('render-stats').innerText = `Componentes: ${total} · ${fpsActual} FPS`;
         }
 
         function enfocarEscena() {
@@ -435,7 +689,7 @@
                     .from('catalogo_piezas')
                     .select('codigo_sku, nombre, tipo, longitud_metros, altura_metros, profundidad_metros, url_modelo_glb');
 
-                if (error) throw error;
+                if (error) throw error; 
 
                 catalogoCache.clear();
                 if (data) {
@@ -504,9 +758,15 @@
             document.getElementById('det-pasillo').innerText = variables.ancho_pasillo_maniobra_metros ? `${variables.ancho_pasillo_maniobra_metros} m` : "N/E";
             document.getElementById('det-comentarios').innerText = variables.comentarios_adicionales || "Sin comentarios técnicos.";
 
-            // Limpiar la escena de Three.js antes de pintar el nuevo diseño
-            while(objectsGroup.children.length > 0){ 
-                objectsGroup.remove(objectsGroup.children[0]); 
+            // Limpiar la escena de Three.js antes de pintar el nuevo diseño.
+            // Se deselecciona primero (evita que quede una referencia colgante a un
+            // mesh que está por eliminarse) y se liberan recursos de GPU antes de
+            // desenganchar los nodos — cada diseño nuevo llega por Realtime, así que
+            // sin esto la memoria de video crece sin límite sesión tras sesión.
+            limpiarSeleccion();
+            disposeObject3D(objectsGroup);
+            while(objectsGroup.children.length > 0){
+                objectsGroup.remove(objectsGroup.children[0]);
             }
 
             const matriz = variables.matriz_ensamble_3d ? variables.matriz_ensamble_3d : variables;

@@ -28,6 +28,12 @@ wheels/
 .installed.cfg
 *.egg
 
+# La regla "lib/" de arriba es para venvs de Python, pero también matchea
+# (sin "/" inicial, aplica a cualquier profundidad) el lib/ de código fuente
+# del app Flutter — se re-incluye explícitamente.
+!frontend/rackbuilder_dashboard_flutter/rackbuilder_dashboard/lib/
+!frontend/rackbuilder_dashboard_flutter/rackbuilder_dashboard/lib/**
+
 # IDE
 .vscode/
 .idea/
