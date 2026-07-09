@@ -306,7 +306,7 @@
         // --- 2. CARGA DE MODELOS PUROS (SIN ENSAMBLE PROCEDURAL DEL FRONTEND) ---
         function renderComponente(comp, tipo) {
             // Colores oscuros de contraste para las geometrías de fallback (mejor legibles en fondo blanco)
-            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : 0x4f46e5);
+            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : (tipo === 'cargador' ? 0x64748b : 0x4f46e5));
             
             // Normalizar el SKU para mapear con precisión el catálogo
             const normalizedSku = comp.sku ? comp.sku.trim().toUpperCase() : "";
@@ -397,10 +397,13 @@
 
         // Renderizado simplificado de respaldo: Muestra una caja con las medidas técnicas puras sin intentar armar componentes de juguete.
         function renderizarFallback(comp, tipo, colorHex, piezaData) {
-            // Dimensiones de precisión definidas en base de datos
-            let largo = parseFloat(piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.12));
-            let alto = parseFloat(piezaData?.altura_metros ?? (tipo === 'marco' ? 4.0 : 0.12));
-            let prof = parseFloat(piezaData?.profundidad_metros ?? (tipo === 'marco' ? 1.0 : 0.08));
+            // Dimensiones: primero las que manda el propio diseno (comp.dimensiones
+            // -- ej. el cargador, que varia de tamano segun el fondo de cada rack y
+            // nunca tiene modelo real), luego el catalogo de Supabase, y solo si
+            // ninguna existe, un tamano generico de respaldo.
+            let largo = parseFloat(comp.dimensiones?.largo ?? piezaData?.longitud_metros ?? (tipo === 'viga' ? 2.4 : 0.12));
+            let alto = parseFloat(comp.dimensiones?.alto ?? piezaData?.altura_metros ?? (tipo === 'marco' ? 4.0 : 0.12));
+            let prof = parseFloat(comp.dimensiones?.profundidad ?? piezaData?.profundidad_metros ?? (tipo === 'marco' ? 1.0 : 0.08));
 
             const posX = parseFloat(comp.posicion?.x ?? 0);
             const posY = parseFloat(comp.posicion?.y ?? 0);
@@ -554,6 +557,17 @@
                 matriz.mensulas.forEach(me => {
                     renderComponente(me, 'mensula');
                     agregarAListaVisual(me.sku, `Ménsula (${me.lado === 'izq' ? 'Izquierda' : 'Derecha'} - Nivel ${me.nivel})`);
+                });
+            }
+
+            // Recorrer y renderizar cargadores (pieza central que conecta las
+            // vigas frontal y trasera -- hoy no existe ningun modelo .glb real
+            // para esta pieza en ningun proveedor, siempre cae al fallback
+            // geometrico, por eso el backend manda "dimensiones" ya calculadas)
+            if (matriz.cargadores) {
+                matriz.cargadores.forEach(c => {
+                    renderComponente(c, 'cargador');
+                    agregarAListaVisual(c.sku, `Cargador (Nivel ${c.nivel})`);
                 });
             }
         }
