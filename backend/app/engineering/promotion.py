@@ -1,8 +1,8 @@
 """
 PromotionEngine (Sprint 2, Fase 4) — traduce las ocurrencias acumuladas de una
 relación del grafo en un estado explícito, y materializa las que llegan a
-"permanente" como una fila real en `reglas_armado` (la tabla que el agente de
-ensamble y el RAG ya leen — ver reglas_service.py / diseno_service.py), para
+"permanente" como una fila real en `reglas_armado` (la tabla que el proyectista
+PM y el RAG ya leen — ver reglas_service.py), para
 que la regla deje de vivir solo dentro del grafo y el sistema la aplique sin
 depender de que Claude "redescubra" el patrón cada vez desde el contexto.
 

@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "../../../../shared/widgets/app_widgets.dart";
+import "../../../../shared/widgets/model_3d_preview_dialog.dart";
 import "../cubit/modelos_cubit.dart";
 import "../cubit/modelos_state.dart";
 import "../../domain/entities/storage_file_entity.dart";
@@ -66,18 +67,24 @@ class _ModelCard extends StatelessWidget {
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(model.name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: mobile ? 13 : 14, color: AppColors.textPrimary)),
-            const SizedBox(height: 2),
-            Text("${model.bucket} / ${model.folder.isEmpty ? "root" : model.folder}",
-                style: const TextStyle(fontSize: 11, color: AppColors.textSecond), overflow: TextOverflow.ellipsis),
-          ])),
-          const SizedBox(width: 8),
-          model.isOptimized
-              ? AppBadge(text: "${model.compressionRatio}% reducción", bg: AppColors.emeraldLight, fg: AppColors.emerald)
-              : const AppBadge(text: "Sin comprimir", bg: AppColors.slateLight, fg: AppColors.textHint),
-        ]),
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => mostrarPreview3D(context, url: model.url, nombre: model.name),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.view_in_ar_outlined, size: mobile ? 18 : 20, color: AppColors.indigo),
+            const SizedBox(width: 8),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(model.name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: mobile ? 13 : 14, color: AppColors.textPrimary)),
+              const SizedBox(height: 2),
+              Text("${model.bucket} / ${model.folder.isEmpty ? "root" : model.folder}",
+                  style: const TextStyle(fontSize: 11, color: AppColors.textSecond), overflow: TextOverflow.ellipsis),
+            ])),
+            const SizedBox(width: 8),
+            model.isOptimized
+                ? AppBadge(text: "${model.compressionRatio}% reducción", bg: AppColors.emeraldLight, fg: AppColors.emerald)
+                : const AppBadge(text: "Sin comprimir", bg: AppColors.slateLight, fg: AppColors.textHint),
+          ]),
+        ),
         const SizedBox(height: 10),
         Wrap(spacing: 10, runSpacing: 4, children: [
           Text("Tipo: ${model.type}", style: const TextStyle(color: AppColors.textSecond, fontSize: 12)),

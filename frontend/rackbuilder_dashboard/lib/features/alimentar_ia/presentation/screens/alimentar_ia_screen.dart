@@ -3,6 +3,7 @@ import "package:flutter_bloc/flutter_bloc.dart";
 import "package:file_picker/file_picker.dart";
 import "package:url_launcher/url_launcher.dart";
 import "../../../../shared/widgets/app_widgets.dart";
+import "../../../../shared/widgets/model_3d_preview_dialog.dart";
 import "../../domain/entities/storage_bucket.dart";
 import "../cubit/alimentar_ia_cubit.dart";
 import "../cubit/alimentar_ia_state.dart";
@@ -39,8 +40,12 @@ class _AlimentarIaScreenState extends State<AlimentarIaScreen> {
     }
   }
 
-  Future<void> _abrirArchivo(String url) async {
+  Future<void> _abrirArchivo(BuildContext context, String url, String nombre) async {
     if (url.isEmpty) return;
+    if (esArchivoModelo3D(nombre)) {
+      await mostrarPreview3D(context, url: url, nombre: nombre);
+      return;
+    }
     final uri = Uri.tryParse(url);
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -134,9 +139,10 @@ class _AlimentarIaScreenState extends State<AlimentarIaScreen> {
                 onTap: () => ctx.read<AlimentarIaCubit>().abrirCarpeta(f.name),
               )),
               ...archivos.map((a) => _EntradaTile(
-                icon: Icons.insert_drive_file_outlined, iconColor: AppColors.indigo,
+                icon: esArchivoModelo3D(a.name) ? Icons.view_in_ar_outlined : Icons.insert_drive_file_outlined,
+                iconColor: AppColors.indigo,
                 title: a.name, subtitle: "${a.type} · ${a.sizeLabel}",
-                onTap: () => _abrirArchivo(a.url),
+                onTap: () => _abrirArchivo(ctx, a.url, a.name),
               )),
             ],
           ]),

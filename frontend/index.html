@@ -344,10 +344,10 @@
                 }
 
                 debugLog(`Cargando modelo real para ${comp.sku}...`);
-                loader.load(urlModelo, 
+                loader.load(urlModelo,
                     (gltf) => {
                         const modelo = gltf.scene;
-                        
+
                         // Habilitar sombras para todo el modelo
                         modelo.traverse((child) => {
                             if (child.isMesh) {
@@ -356,10 +356,6 @@
                             }
                         });
 
-                        // CARGA DIRECTA Y PURA:
-                        // No alteramos el pivote de la escena original para respetar la escala y alineación del CAD de origen.
-                        modelo.position.set(posX, posY, posZ);
-
                         if (comp.rotacion) {
                             modelo.rotation.set(
                                 parseFloat(comp.rotacion.x ?? 0),
@@ -367,6 +363,21 @@
                                 parseFloat(comp.rotacion.z ?? 0)
                             );
                         }
+
+                        // NORMALIZAR PIVOTE VERTICAL: no todos los GLB subidos al
+                        // catalogo tienen su origen en la base de la pieza -- muchos
+                        // CAD exportan con el pivote al centro del volumen. El
+                        // fallback geometrico de abajo si compensa esto (posY + alto/2),
+                        // pero el modelo real no lo hacia, asi que una pieza con
+                        // pivote al centro terminaba mitad enterrada bajo el piso
+                        // ("las piezas salen por debajo del mapa"). Medimos el bbox
+                        // local (ya rotado, en el origen) y desplazamos para que la
+                        // base real (bbox.min.y) quede exactamente en posY.
+                        modelo.position.set(0, 0, 0);
+                        modelo.updateMatrixWorld(true);
+                        const bboxLocal = new THREE.Box3().setFromObject(modelo);
+                        const offsetY = Number.isFinite(bboxLocal.min.y) ? -bboxLocal.min.y : 0;
+                        modelo.position.set(posX, posY + offsetY, posZ);
 
                         objectsGroup.add(modelo);
                         debugLog(`Modelo ${comp.sku} montado correctamente.`, "ok");

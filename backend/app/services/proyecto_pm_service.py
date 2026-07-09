@@ -189,13 +189,23 @@ async def generar_proyecto_pm(
             diseno_previo = obtener_ultimo_diseno(session_id)
             proxima_version = (diseno_previo["version_actual"] + 1) if diseno_previo else 1
 
+            # historial_comentarios es siempre una lista acumulada de strings
+            # para que el frontend la pueda renderizar sin depender de la
+            # forma del ultimo escritor.
+            historial_previo = (diseno_previo.get("historial_comentarios") if diseno_previo else None) or []
+            if not isinstance(historial_previo, list):
+                historial_previo = [str(historial_previo)]
+            clave_proyecto = proyecto.get("clave")
+            comentario_historial = f"[{clave_proyecto}] {descripcion}" if clave_proyecto else descripcion
+            historial_comentarios = [*historial_previo, comentario_historial]
+
             supabase.table("disenos_racks").insert({
                 "vendedor_id": tg_username or tg_full_name or str(tg_user_id),
                 "session_id": session_id,
                 "solicitud_original": descripcion,
                 "version_actual": proxima_version,
                 "matriz_ensamble_3d": matriz,
-                "historial_comentarios": {"comentario": descripcion, "clave_proyecto": proyecto.get("clave")},
+                "historial_comentarios": historial_comentarios,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }).execute()

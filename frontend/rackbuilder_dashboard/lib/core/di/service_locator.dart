@@ -42,6 +42,8 @@ import '../../features/rag/domain/repositories/rag_repository.dart';
 import '../../features/rag/domain/usecases/buscar_rag_usecase.dart';
 import '../../features/rag/domain/usecases/sincronizar_rag_usecase.dart';
 import '../../features/rag/presentation/cubit/rag_cubit.dart';
+import '../../features/arquitectura/data/datasources/arquitectura_remote_datasource.dart';
+import '../../features/arquitectura/presentation/cubit/arquitectura_cubit.dart';
 import '../network/api_client.dart';
 
 final sl = GetIt.instance;
@@ -117,4 +119,9 @@ Future<void> setupServiceLocator() async {
   sl.registerLazySingleton(() => BuscarRagUsecase(sl()));
   sl.registerLazySingleton(() => SincronizarRagUsecase(sl()));
   sl.registerFactory(() => RagCubit(sl(), sl()));
+
+  // -- Arquitectura del Sistema (fallos en vivo sobre el mapa estatico) ------
+  sl.registerLazySingleton<ArquitecturaRemoteDatasource>(
+      () => ArquitecturaRemoteDatasourceImpl(sl()));
+  sl.registerFactory(() => ArquitecturaCubit(sl()));
 }

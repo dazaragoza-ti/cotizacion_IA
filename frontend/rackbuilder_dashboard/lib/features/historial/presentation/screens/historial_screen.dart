@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "../../../../core/utils/formatters.dart";
 import "../../../../shared/widgets/app_widgets.dart";
+import "../../../../shared/widgets/visor_3d_dialog.dart";
 import "../cubit/historial_cubit.dart";
 import "../cubit/historial_state.dart";
 import "../../domain/entities/diseno_entity.dart";
@@ -122,6 +123,11 @@ class _VersionTile extends StatelessWidget {
           Text(v.solicitudOriginal, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary), maxLines: 2, overflow: TextOverflow.ellipsis),
           Text(Formatters.date(v.createdAt), style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
         ])),
+        IconButton(
+          icon: const Icon(Icons.view_in_ar_outlined, size: 18, color: AppColors.indigo),
+          tooltip: "Ver render 3D",
+          onPressed: () => mostrarVisor3D(context, sessionId: v.sessionId, titulo: "v${v.versionActual} · ${v.solicitudOriginal}"),
+        ),
       ]),
       if (v.historialComentarios.isNotEmpty) ...[
         const SizedBox(height: 8),

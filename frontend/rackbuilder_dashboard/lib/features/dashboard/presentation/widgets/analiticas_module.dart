@@ -16,9 +16,9 @@ class AnaliticasModule extends StatelessWidget {
       final loading = state is DashboardConnected && state.loadingMetrics;
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ResponsiveRow(children: [
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text("Métricas Globales", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
-            const Text("Monitoreo en tiempo real de diseños y costo de APIs.", style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
+          const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("Métricas Globales", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+            Text("Monitoreo en tiempo real de diseños y costo de APIs.", style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
           ]),
           Align(alignment: Alignment.centerRight, child: ElevatedButton.icon(
             onPressed: () => ctx.read<DashboardCubit>().refreshMetrics(),

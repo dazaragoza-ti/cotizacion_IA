@@ -1,6 +1,10 @@
 import "package:flutter/material.dart";
+import "package:flutter_bloc/flutter_bloc.dart";
 import "../../../../shared/widgets/app_widgets.dart";
 import "../../domain/nodo_arquitectura.dart";
+import "../../domain/error_sistema.dart";
+import "../cubit/arquitectura_cubit.dart";
+import "../cubit/arquitectura_state.dart";
 import "../widgets/red_arquitectura_painter.dart";
 
 class ArquitecturaScreen extends StatefulWidget {
@@ -15,6 +19,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
   @override void initState() {
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+    context.read<ArquitecturaCubit>().iniciarPolling();
   }
 
   @override void dispose() {
@@ -38,59 +43,100 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
   }
 
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
-    const SizedBox(height: 4),
-    const Text("Cómo fluye una solicitud a través de los motores reales del proyecto. Toca un nodo para ver su detalle.",
-        style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
-    const SizedBox(height: 8),
-    Wrap(spacing: 12, runSpacing: 6, children: [
-      _leyenda(AppColors.emerald, "Implementado"),
-      _leyenda(AppColors.amber, "Parcial / no-op sin configurar"),
-      _leyendaBorde(AppColors.textHint, "Descartado o futuro (borde punteado)"),
-      _leyendaLinea(AppColors.indigo, "Flujo de datos"),
-      _leyendaLinea(AppColors.purple, "Observabilidad (LangSmith), punteado"),
-    ]),
-    const SizedBox(height: 16),
-    PanelCard(
-      title: "Mapa de motores", subtitle: "${ArquitecturaData.nodos.length} componentes",
-      child: LayoutBuilder(builder: (context, constraints) {
-        final ancho = constraints.maxWidth.clamp(600, 1400).toDouble();
-        const alto = 460.0;
-        final posiciones = {
-          for (final n in ArquitecturaData.nodos)
-            n.id: Offset(n.posicion.dx * ancho, n.posicion.dy * alto),
-        };
-        return SizedBox(
-          width: ancho, height: alto,
-          child: AnimatedBuilder(
-            animation: _ctrl,
-            builder: (context, _) => GestureDetector(
-              onTapDown: (d) => _onTapDown(d, posiciones),
-              child: CustomPaint(
-                size: Size(ancho, alto),
-                painter: RedArquitecturaPainter(pulso: _ctrl.value, nodoSeleccionado: _seleccionado, posicionesAbs: posiciones),
+  Widget build(BuildContext context) => BlocBuilder<ArquitecturaCubit, ArquitecturaState>(
+    builder: (context, state) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+      const SizedBox(height: 4),
+      const Text("Cómo fluye una solicitud a través de los motores reales del proyecto. Toca un nodo para ver su detalle.",
+          style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
+      const SizedBox(height: 8),
+      if (state.errores.isNotEmpty) ...[
+        _panelFallos(context, state.errores),
+        const SizedBox(height: 12),
+      ],
+      Wrap(spacing: 12, runSpacing: 6, children: [
+        _leyenda(AppColors.emerald, "Implementado"),
+        _leyenda(AppColors.amber, "Parcial / no-op sin configurar"),
+        _leyendaBorde(AppColors.textHint, "Descartado o futuro (borde punteado)"),
+        _leyenda(AppColors.red, "Fallo reciente (ver detalle abajo)"),
+        _leyendaLinea(AppColors.indigo, "Flujo de datos"),
+        _leyendaLinea(AppColors.purple, "Observabilidad (LangSmith), punteado"),
+      ]),
+      const SizedBox(height: 16),
+      PanelCard(
+        title: "Mapa de motores", subtitle: "${ArquitecturaData.nodos.length} componentes",
+        child: LayoutBuilder(builder: (context, constraints) {
+          final ancho = constraints.maxWidth.clamp(600, 1400).toDouble();
+          const alto = 460.0;
+          final posiciones = {
+            for (final n in ArquitecturaData.nodos)
+              n.id: Offset(n.posicion.dx * ancho, n.posicion.dy * alto),
+          };
+          return SizedBox(
+            width: ancho, height: alto,
+            child: AnimatedBuilder(
+              animation: _ctrl,
+              builder: (context, _) => GestureDetector(
+                onTapDown: (d) => _onTapDown(d, posiciones),
+                child: CustomPaint(
+                  size: Size(ancho, alto),
+                  painter: RedArquitecturaPainter(
+                    pulso: _ctrl.value,
+                    nodoSeleccionado: _seleccionado,
+                    posicionesAbs: posiciones,
+                    nodosConError: state.nodosConError,
+                  ),
+                ),
               ),
             ),
+          );
+        }),
+      ),
+      if (_nodo != null) _panelDetalleNodo(_nodo!)
+      else const AppEmptyState(icon: Icons.touch_app_outlined, message: "Toca cualquier círculo del mapa para ver qué hace ese componente."),
+      const SizedBox(height: 16),
+      _panelFlujo(
+        titulo: "Flujo 1 — Cómo se genera un diseño",
+        subtitulo: "Del mensaje del cliente a los archivos entregados",
+        pasos: ArquitecturaData.flujoGeneracion,
+      ),
+      const SizedBox(height: 16),
+      _panelFlujo(
+        titulo: "Flujo 2 — Cómo aprende el sistema",
+        subtitulo: "De una corrección manual a una regla reutilizable",
+        pasos: ArquitecturaData.flujoAprendizaje,
+      ),
+    ]),
+  );
+
+  Widget _panelFallos(BuildContext context, List<ErrorSistema> errores) => PanelCard(
+    title: "Fallos recientes",
+    subtitle: "${errores.length} sin resolver",
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (final e in errores) Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.error_outline, size: 16, color: AppColors.red),
+          const SizedBox(width: 8),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              AppBadge(text: e.componente, bg: AppColors.redLight, fg: AppColors.red),
+              const SizedBox(width: 6),
+              if (e.endpoint != null) Expanded(child: Text(e.endpoint!,
+                  style: const TextStyle(fontSize: 11, color: AppColors.textHint), overflow: TextOverflow.ellipsis)),
+            ]),
+            const SizedBox(height: 4),
+            Text(e.mensaje, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary), maxLines: 2, overflow: TextOverflow.ellipsis),
+          ])),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => context.read<ArquitecturaCubit>().resolverError(e.id),
+            child: const Text("Marcar resuelto", style: TextStyle(fontSize: 11)),
           ),
-        );
-      }),
-    ),
-    if (_nodo != null) _panelDetalleNodo(_nodo!)
-    else const AppEmptyState(icon: Icons.touch_app_outlined, message: "Toca cualquier círculo del mapa para ver qué hace ese componente."),
-    const SizedBox(height: 16),
-    _panelFlujo(
-      titulo: "Flujo 1 — Cómo se genera un diseño",
-      subtitulo: "Del mensaje del cliente a los archivos entregados",
-      pasos: ArquitecturaData.flujoGeneracion,
-    ),
-    const SizedBox(height: 16),
-    _panelFlujo(
-      titulo: "Flujo 2 — Cómo aprende el sistema",
-      subtitulo: "De una corrección manual a una regla reutilizable",
-      pasos: ArquitecturaData.flujoAprendizaje,
-    ),
-  ]);
+        ]),
+      ),
+    ]),
+  );
 
   Widget _panelDetalleNodo(NodoArquitectura nodo) => PanelCard(
     title: nodo.label.replaceAll("\n", " "),

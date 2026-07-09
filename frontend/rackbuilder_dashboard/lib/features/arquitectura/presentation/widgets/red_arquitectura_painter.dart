@@ -13,8 +13,14 @@ class RedArquitecturaPainter extends CustomPainter {
   final double pulso; // 0..1, avanza con la animacion
   final String? nodoSeleccionado;
   final Map<String, Offset> posicionesAbs;
+  final Set<String> nodosConError;
 
-  RedArquitecturaPainter({required this.pulso, required this.nodoSeleccionado, required this.posicionesAbs});
+  RedArquitecturaPainter({
+    required this.pulso,
+    required this.nodoSeleccionado,
+    required this.posicionesAbs,
+    this.nodosConError = const {},
+  });
 
   Offset _pos(String id) => posicionesAbs[id] ?? Offset.zero;
 
@@ -49,22 +55,40 @@ class RedArquitecturaPainter extends CustomPainter {
       final pos = _pos(n.id);
       if (pos == Offset.zero) continue;
       final seleccionado = nodoSeleccionado == n.id;
-      final color = colorDeEstado(n.estado);
+      final conError = nodosConError.contains(n.id);
+      final color = conError ? AppColors.red : colorDeEstado(n.estado);
       final radio = seleccionado ? 30.0 : 26.0;
       final noImplementado = n.estado == EstadoNodo.noImplementado;
 
       canvas.drawCircle(pos, radio + 6,
-          Paint()..color = color.withValues(alpha: seleccionado ? 0.22 : 0.10));
+          Paint()..color = color.withValues(alpha: seleccionado ? 0.22 : (conError ? 0.18 : 0.10)));
       canvas.drawCircle(pos, radio, Paint()..color = AppColors.surface);
 
       final bordePaint = Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = seleccionado ? 3 : 2;
+        ..strokeWidth = (conError || seleccionado) ? 3 : 2;
       if (noImplementado) {
         _dibujarCirculoPunteado(canvas, pos, radio, bordePaint);
       } else {
         canvas.drawCircle(pos, radio, bordePaint);
+      }
+
+      if (conError) {
+        // Insignia de alerta -- el pulso de la animacion la hace "latir"
+        // para que sea imposible no notarla al abrir la pantalla.
+        final escala = 1.0 + 0.08 * math.sin(pulso * 2 * math.pi);
+        final centroInsignia = pos + Offset(radio * 0.72, -radio * 0.72);
+        canvas.drawCircle(centroInsignia, 8 * escala, Paint()..color = AppColors.red);
+        canvas.drawCircle(centroInsignia, 8 * escala, Paint()
+          ..color = AppColors.surface
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5);
+        final signo = TextPainter(
+          text: const TextSpan(text: "!", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        signo.paint(canvas, centroInsignia - Offset(signo.width / 2, signo.height / 2));
       }
 
       final painter = TextPainter(
@@ -110,5 +134,7 @@ class RedArquitecturaPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant RedArquitecturaPainter oldDelegate) =>
-      oldDelegate.pulso != pulso || oldDelegate.nodoSeleccionado != nodoSeleccionado;
+      oldDelegate.pulso != pulso ||
+      oldDelegate.nodoSeleccionado != nodoSeleccionado ||
+      oldDelegate.nodosConError != nodosConError;
 }

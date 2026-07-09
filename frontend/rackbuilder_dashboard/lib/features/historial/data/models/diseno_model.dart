@@ -11,10 +11,22 @@ class DisenoModel extends DisenoEntity {
     sessionId: j["session_id"] as String? ?? "",
     solicitudOriginal: j["solicitud_original"] as String? ?? "",
     versionActual: (j["version_actual"] as num?)?.toInt() ?? 1,
-    historialComentarios: ((j["historial_comentarios"] as List<dynamic>?) ?? [])
-        .map((e) => e.toString()).toList(),
+    historialComentarios: _parseHistorial(j["historial_comentarios"]),
     inputTokens: (j["input_tokens"] as num?)?.toInt() ?? 0,
     outputTokens: (j["output_tokens"] as num?)?.toInt() ?? 0,
     createdAt: j["created_at"] as String? ?? "",
   );
+
+  // Filas antiguas guardaron historial_comentarios como Map en vez de List
+  // (bug ya corregido en proyecto_pm_service.py); esto evita que datos legacy
+  // rompan la pantalla con un TypeError al castear.
+  static List<String> _parseHistorial(dynamic raw) {
+    if (raw is List) return raw.map((e) => e.toString()).toList();
+    if (raw is Map) {
+      final comentario = raw["comentario"];
+      return comentario != null ? [comentario.toString()] : [];
+    }
+    if (raw is String && raw.isNotEmpty) return [raw];
+    return [];
+  }
 }

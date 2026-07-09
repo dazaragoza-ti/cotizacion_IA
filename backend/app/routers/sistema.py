@@ -1,6 +1,8 @@
-"""Endpoints de sistema: health check y configuración pública de Supabase."""
+"""Endpoints de sistema: health check, configuración pública de Supabase y
+fallos recientes del backend (para el módulo Arquitectura del Sistema)."""
 import os
 from fastapi import APIRouter, HTTPException
+from ..clients import supabase
 
 router = APIRouter(tags=["sistema"])
 
@@ -17,3 +19,18 @@ async def get_supabase_config():
     if not url or not key:
         raise HTTPException(status_code=500, detail="SUPABASE_URL o SUPABASE_KEY no están configuradas en el .env del servidor.")
     return {"url": url, "key": key}
+
+@router.get("/sistema/errores")
+async def listar_errores_sistema(limit: int = 20, solo_activos: bool = True):
+    """Fallos recientes registrados por los exception handlers globales
+    (ver app/main.py + app/core/error_logger.py)."""
+    query = supabase.table("sistema_errores").select("*").order("created_at", desc=True).limit(limit)
+    if solo_activos:
+        query = query.eq("resuelto", False)
+    result = query.execute()
+    return {"errores": result.data or []}
+
+@router.post("/sistema/errores/{error_id}/resolver")
+async def resolver_error_sistema(error_id: str):
+    supabase.table("sistema_errores").update({"resuelto": True}).eq("id", error_id).execute()
+    return {"ok": True}

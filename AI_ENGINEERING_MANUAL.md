@@ -393,9 +393,6 @@ CorrectionProcessor, cableado en el flujo vivo), esta sesion cerro el resto:
   worktree paralelo y en el stash de esta sesion). Vale la pena una sesion
   dedicada solo a esto, sin trabajo de backend en paralelo, para evitar
   reconciliaciones como la de hoy.
-- **Decidir si vale la pena arreglar `diseno_service.py`** (el bug de import
-  preexistente) o eliminarlo del todo si el "Agente de Ensamble rapido" ya
-  no se va a usar — hoy es codigo muerto que puede confundir a quien lo lea.
 - **Considerar `pg_dump` del esquema real** (`0000_baseline.sql`, mencionado
   en `backend/db/migrations/README.md`) la proxima vez que alguien tenga
   acceso directo a Postgres — cierra la brecha de documentacion del schema
@@ -563,3 +560,62 @@ verdad.
 
 Verificado con `flutter analyze`: 0 issues. Backend: 12/12 tests (`test_sku_diff.py`
 + `test_learning.py`), import completo (`app.main`) sin errores.
+
+### Historial — bug de historial_comentarios (TypeError en Flutter) + fallos del backend visibles en Arquitectura
+
+Sesion de seguimiento (mismo dia): el usuario reporto un `TypeError: type
+'JsonMap' is not a subtype of type 'List<dynamic>'` al abrir Historial de
+Diseños, y pidio que los fallos del backend se reflejen en el frontend,
+dentro del modulo "Arquitectura del Sistema".
+
+- **Causa raiz del TypeError:** dos escritores distintos de la columna
+  `disenos_racks.historial_comentarios` guardaban formas incompatibles.
+  `diseno_service.py` (Agente de Ensamble rapido) siempre guardo una
+  **lista** de strings acumulada. `proyecto_pm_service.py` (el flujo real,
+  el que corre desde Telegram) guardaba un **dict**
+  (`{"comentario": ..., "clave_proyecto": ...}`) en la linea 198 — el
+  frontend (`diseno_model.dart`) hacia un cast directo a `List<dynamic>?` y
+  reventaba apenas encontraba una fila del segundo tipo.
+- **Fix aplicado (dos partes):**
+  1. `proyecto_pm_service.py`: unificado al mismo formato de lista
+     acumulada que usa `diseno_service.py` — acumula el historial de la
+     version anterior y agrega el comentario nuevo (con el prefijo
+     `[clave_proyecto]` si existe) como ultimo elemento.
+  2. `diseno_model.dart`: `_parseHistorial()` ahora es defensivo — si el
+     dato ya viene como `List` lo usa tal cual, si es un `Map` legacy
+     extrae `comentario`, si es un `String` lo envuelve en una lista. Esto
+     evita que las filas ya guardadas en Supabase con el formato viejo
+     (dict) sigan rompiendo la pantalla.
+- **Fallos del backend visibles en Arquitectura del Sistema — feature
+  nueva:** el modulo dejo de ser 100% estatico (contradice la descripcion
+  de la sesion anterior, arriba). Ahora tiene una capa `data/`+`cubit`
+  igual que el resto de features:
+  1. Nueva tabla `sistema_errores` (migracion
+     `0007_sistema_errores.sql`: `componente`, `endpoint`, `mensaje`,
+     `resuelto`, `created_at`).
+  2. `app/core/error_logger.py`: `registrar_error()` (best-effort, nunca
+     lanza) e `inferir_componente(path)` que mapea la ruta del endpoint al
+     nodo del mapa (`/rag` -> `rag`, `/correcciones`/`/stats` -> `graph`,
+     `/catalogo`/`/storage` -> `supabase`, resto -> `fastapi`).
+  3. `app/main.py`: dos `@app.exception_handler` globales — uno para
+     `HTTPException` (persiste solo si `status_code >= 500`, un 404/400 no
+     es un fallo del sistema) y uno catch-all para excepciones no
+     manejadas (loguea + persiste + responde 500 generico). Antes de esto
+     un error solo se veia en el log del proceso, nunca en ningun lado
+     consultable por el frontend.
+  4. Endpoints nuevos en `routers/sistema.py`: `GET /sistema/errores`
+     (lista errores, por defecto solo los no resueltos) y
+     `POST /sistema/errores/{id}/resolver`.
+  5. Frontend: `ArquitecturaCubit` (con `Timer.periodic` de 30s) trae los
+     errores activos y expone `nodosConError` (set de ids de nodo);
+     `RedArquitecturaPainter` pinta esos nodos en rojo con una insignia
+     "!" pulsante; la pantalla agrega un panel "Fallos recientes" con
+     boton "Marcar resuelto" por fila. Si el propio endpoint de monitoreo
+     falla, el cubit lo traga en silencio — el mapa estatico no debe
+     romperse por eso.
+
+Verificado con `flutter analyze`: 0 issues. Backend: `import app.main` y
+`import app.services.proyecto_pm_service` sin errores (no se pudo correr
+`test_sku_diff.py`/`test_learning.py` en esta sesion — el venv no tiene
+`pytest` instalado y son estilo pytest, no `unittest.TestCase`; ninguno de
+los dos archivos toca los modulos modificados aqui).

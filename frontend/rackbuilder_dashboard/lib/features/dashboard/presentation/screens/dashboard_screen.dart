@@ -10,6 +10,7 @@ import "../../../historial/presentation/cubit/historial_cubit.dart";
 import "../../../alimentar_ia/presentation/cubit/alimentar_ia_cubit.dart";
 import "../../../estadisticas/presentation/cubit/estadisticas_cubit.dart";
 import "../../../rag/presentation/cubit/rag_cubit.dart";
+import "../../../arquitectura/presentation/cubit/arquitectura_cubit.dart";
 import "../widgets/topbar_widget.dart";
 import "../widgets/sidebar_widget.dart";
 import "../widgets/analiticas_module.dart";
@@ -88,6 +89,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         BlocProvider(create: (_) => sl<AlimentarIaCubit>()),
         BlocProvider(create: (_) => sl<EstadisticasCubit>()),
         BlocProvider(create: (_) => sl<RagCubit>()),
+        BlocProvider(create: (_) => sl<ArquitecturaCubit>()),
       ],
       child: BlocConsumer<DashboardCubit, DashboardState>(
         // Escuchar cuando la conexión se establece y disparar carga del módulo activo

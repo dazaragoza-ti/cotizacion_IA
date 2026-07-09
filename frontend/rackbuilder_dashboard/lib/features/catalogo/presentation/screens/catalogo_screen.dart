@@ -3,6 +3,7 @@ import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "package:file_picker/file_picker.dart";
 import "../../../../shared/widgets/app_widgets.dart";
+import "../../../../shared/widgets/model_3d_preview_dialog.dart";
 import "../cubit/catalogo_cubit.dart";
 import "../cubit/catalogo_state.dart";
 
@@ -118,12 +119,16 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                   margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
                   child: Row(children: [
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(p.codigoSku, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.indigo)),
-                      Text(p.nombre, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
-                      Text("${p.tipo} · ${p.pesoMaximoKg} kg · ${p.longitudMetros}m x ${p.alturaMetros}m", style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
-                      if (p.hasModelo) const Row(children: [Icon(Icons.check_circle, size: 12, color: AppColors.emerald), SizedBox(width: 4), Text("Modelo 3D disponible", style: TextStyle(fontSize: 10, color: AppColors.emerald, fontWeight: FontWeight.w600))]),
-                    ])),
+                    Expanded(child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: p.hasModelo ? () => mostrarPreview3D(context, url: p.urlModeloGlb!, nombre: "${p.codigoSku} · ${p.nombre}") : null,
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(p.codigoSku, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.indigo)),
+                        Text(p.nombre, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+                        Text("${p.tipo} · ${p.pesoMaximoKg} kg · ${p.longitudMetros}m x ${p.alturaMetros}m", style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
+                        if (p.hasModelo) const Row(children: [Icon(Icons.view_in_ar_outlined, size: 12, color: AppColors.emerald), SizedBox(width: 4), Text("Modelo 3D disponible · toca para ver", style: TextStyle(fontSize: 10, color: AppColors.emerald, fontWeight: FontWeight.w600))]),
+                      ]),
+                    )),
                     GestureDetector(
                       onTap: () async {
                         final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
