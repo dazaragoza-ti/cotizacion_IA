@@ -58,6 +58,28 @@ Usuario → Claude → Proyecto → Usuario corrige → CorrectionProcessor
 
 ---
 
+## Panel Flutter — primera superficie humana del aprendizaje continuo
+
+Hasta ahora `correcciones_armado` y el RAG solo eran visibles por Supabase
+directo o llamando a la API cruda. Se agregaron dos pantallas al dashboard
+(`frontend/rackbuilder_dashboard_flutter/rackbuilder_dashboard`), siguiendo
+el mismo patrón clean-arch (`data/domain/presentation`) que el resto del app:
+
+| Pantalla | Backend consumido | Qué hace |
+|---|---|---|
+| **Aprendizaje Continuo** (`features/correcciones`) | `GET /correcciones`, `DELETE /correcciones/{id}` | Lista las correcciones ordenadas por `veces_repetida`, distingue origen manual/automático, muestra `tipo_rack`/`proyecto_clave`, y permite eliminar una corrección (con confirmación) para sacarla del contexto del agente. |
+| **Base de Conocimiento (RAG)** (`features/rag`) | `POST /rag/sync`, `GET /rag/search` | Botón de sincronización manual del vector store + buscador semántico de prueba (con filtro opcional por `tipo`) que muestra `tipo`/`fuente`/`contenido`/similarity de cada resultado. |
+
+Ambas quedaron wireadas en `service_locator.dart`, el sidebar de escritorio,
+el rail de tablet y el bottom nav de móvil. `flutter analyze` corre en 0
+errores sobre el código nuevo.
+
+Esto **no cierra ninguna fase pendiente** de este documento (no hay
+"promoción automática" ni endpoint agregado de estadísticas por SKU) — es
+solo visibilidad/operación manual sobre lo que el backend ya hace solo.
+
+---
+
 ## Lo que ya existía en el proyecto (base reutilizable, NO nuevo)
 
 | Subsistema | Dónde | Estado antes del sprint |
