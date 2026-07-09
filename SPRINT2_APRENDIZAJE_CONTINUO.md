@@ -2,9 +2,9 @@
 
 > Objetivo del sprint: **cada corrección de un usuario debe hacer mejor al sistema.**
 > Una corrección ya no solo se guarda: alimenta embeddings, chunks, grafo,
-> compatibility engine, estadísticas, LangSmith y (a futuro) reglas permanentes.
+> compatibility engine, estadísticas, LangSmith y reglas permanentes.
 >
-> Última actualización: 2026-07-08 · Rama: `josue` · Commit base: `5ce7120`
+> Última actualización: 2026-07-08 · Rama: `josue` · Commit base: `84b8860`
 
 ---
 
@@ -23,90 +23,94 @@
 Usuario → Claude → Proyecto → Usuario corrige → CorrectionProcessor
                                                    ├── Corrections      (guardar)
                                                    ├── Embeddings/Chunks (RAG)
-                                                   ├── KnowledgeGraph    (reemplaza_por…)
+                                                   ├── KnowledgeGraph    (reemplaza_por / evitar_con / compatible_con)
                                                    ├── CompatibilityEngine (leer grafo)
                                                    ├── Metrics           (knowledge_stats)
-                                                   ├── PromotionEngine   (regla permanente)
-                                                   └── LangSmith         (observabilidad)
+                                                   ├── PromotionEngine   (regla permanente → reglas_armado)
+                                                   └── LangSmith         (observabilidad + costo)
+                                                          ↓
+                                        Context Builder LEE el grafo y lo inyecta al prompt
 ```
 
 ---
 
-## Lo que YA se implementó (este sprint)
+## Estado por fase
 
-| Componente | Archivo | Estado | Nota |
+| Fase | Qué hace | Archivo(s) | Estado |
 |---|---|---|---|
-| **SkuDiffExtractor** | `backend/app/engineering/sku_diff.py` | ✅ | Extrae reemplazos/altas/bajas/cambios de cantidad desde el JSON antes/después. Normaliza sufijos de color. **Pieza fundacional.** |
-| **Planificador de aprendizaje** (puro) | `backend/app/engineering/learning.py` | ✅ | `DiffSku → PlanAprendizaje` (métricas + relaciones). Sin I/O → testeable. |
-| **MetricsService** | `backend/app/engineering/metrics.py` | 🟡🔦 | Incrementa `knowledge_stats` vía RPC atómico. Best-effort: no-op con aviso hasta aplicar migración `0001`. |
-| **CorrectionProcessor** | `backend/app/engineering/correction_processor.py` | ✅ | Punto único de entrada. Orquesta guardar→diff→métricas→grafo→promoción. Todo best-effort. |
-| **Cableado en el flujo vivo** | `backend/app/services/proyecto_pm_service.py` | ✅ | 3 puntos: corrección manual (`process`), automática (`process_automatica`), conteo de uso (`registrar_uso`). |
-| **Escritura de grafo `reemplaza_por`** | dentro de `correction_processor.py` | 🟡 | **Escribe** aristas SKU→SKU con `confidence` reforzada (umbral 30→0.95) y marca `validada` a las 50 ocurrencias. La tabla `knowledge_edges` ya existía. |
-| **Migración `knowledge_stats`** | `backend/db/migrations/0001_knowledge_stats.sql` | 🔦 | Tabla + RPC `increment_stat`. **Autorada, no aplicada.** |
-| **Migración índice de reforzamiento** | `backend/db/migrations/0002_knowledge_edges_reinforcement.sql` | 🔦 | Índice único para upsert atómico de relaciones. **Autorada, no aplicada.** |
-| **Convención de migraciones** | `backend/db/migrations/README.md` | ✅ | Antes había cero `.sql` en el repo. |
-| **Tests** | `backend/tests/test_sku_diff.py`, `test_learning.py` | ✅ | 10/10 en verde. Corren con `python` plano (sin pytest). |
+| 0 — Cimientos | SkuDiffExtractor, planificador puro, convención de migraciones | `sku_diff.py`, `learning.py`, `db/migrations/` | ✅ (0a: `node_modules` fuera del índice, `backend/app` versionado) |
+| 1 — Orquestación | CorrectionProcessor punto único de entrada, cableado en el flujo vivo | `correction_processor.py`, `proyecto_pm_service.py` | ✅ |
+| 2 — Estadísticas | Contadores por SKU (`knowledge_stats`) + endpoint para consultarlos | `metrics.py`, `routers/stats.py` (`GET /stats/top`, `GET /stats/sku/{sku}`) | ✅ código · 🔦 falta aplicar migración 0001 |
+| 3 — Grafo (cierre) | Upsert atómico de aristas, relaciones `evitar_con`/`compatible_con`, lectura del grafo inyectada al prompt | `graph.py` (`upsert_relation`, `relaciones_relevantes`), `learning.py`, `context_builder.py` | ✅ código · 🔦 falta aplicar migraciones 0002/0003 |
+| 4 — PromotionEngine | Estados explícitos (nueva→importante→candidata→permanente) y materialización en `reglas_armado` | `promotion.py` | ✅ código · 🔦 depende de 0003 para tener `ocurrencias` reales |
+| 5 — LangSmith | Costo (`usage_metadata`), system prompt real en traza, span de retriever, `run_id` en `disenos_racks`, 2ª ruta LLM instrumentada | `tracing.py`, `claude_client.py`, `vector_store.py`, `proyecto_pm_service.py`, `diseno_service.py` | ✅ código · 🔦 falta aplicar migración 0004 |
+| Limpieza | `pm_rackbot/*` duplicado muerto, stubs de 0 bytes, normalizador único | — | ✅ eliminado/unificado |
 
 ### Qué funciona hoy sin tocar Supabase
-- Detección de corrección + guardado en `correcciones_armado` (ya existía).
-- Indexación de embeddings en vivo (ya existía, dentro de `registrar_correccion`).
-- Cálculo del diff de SKUs.
-- Escritura de aristas `reemplaza_por` en `knowledge_edges` (tabla ya existente).
+- Todo lo de fases 0/1 (ya lo hacía antes de esta ronda).
+- El Context Builder consulta `knowledge_edges` en cada turno (si no hay filas para
+  un SKU, simplemente no agrega nada — no rompe el flujo).
+- El endpoint `/stats/*` responde con 503 explicando qué migración falta, en vez
+  de un 500 genérico.
 
-### Qué se activa al aplicar la migración `0001`
-- Los contadores de `knowledge_stats` (hoy solo loguean aviso).
+### Qué se activa al aplicar las migraciones pendientes
+- **`0001_knowledge_stats.sql`** → contadores reales en `knowledge_stats` y el
+  endpoint `/stats/*` deja de dar 503.
+- **`0002_knowledge_edges_reinforcement.sql`** → índice único que hace posible
+  el upsert atómico.
+- **`0003_reforzar_relacion_rpc.sql`** (nueva) → RPC `reforzar_relacion`: sin
+  esto, `KnowledgeGraph.upsert_relation()` falla (best-effort, se loguea) y
+  ninguna relación se refuerza ni se promueve.
+- **`0004_disenos_racks_langsmith_run_id.sql`** (nueva) → columna
+  `langsmith_run_id`; sin ella, el `insert` a `disenos_racks` sigue funcionando
+  igual (no se ve afectado) pero el `update` posterior falla silenciosamente y
+  no queda la correlación fila↔traza.
 
----
+## 🔦 Pendiente de infra externa (requiere acción manual del usuario)
 
-## Lo que ya existía en el proyecto (base reutilizable, NO nuevo)
+Las 4 migraciones (`0001`–`0004`, en `backend/db/migrations/`) están **redactadas
+pero no aplicadas** en Supabase. No se pudieron aplicar automáticamente en esta
+ronda porque `SUPABASE_URL`/`SUPABASE_KEY` en `.env` son credenciales de la API
+REST — aplicar DDL (`create table`, `create function`, `alter table`) requiere
+una conexión directa a Postgres (Settings → Database → Connection string) o
+pegar el SQL a mano en el SQL Editor de Supabase. Pasos:
 
-| Subsistema | Dónde | Estado antes del sprint |
-|---|---|---|
-| Guardado de correcciones | `app/services/correcciones_pm_service.py` (`_registrar`) | ✅ tabla `correcciones_armado`, dedup por `veces_repetida` |
-| Embeddings / RAG (pgvector) | `app/ai/rag/` (Voyage, `knowledge_chunks`, RPC `match_knowledge`) | ✅ funcionando; recupera `tipo="correccion"` |
-| Grafo de conocimiento (tablas) | `app/ai/rag/graph.py` (`knowledge_entities`, `knowledge_edges`) | 🟡 write-only, `confidence` hardcodeada, sin `reemplaza_por` |
-| Compatibility Engine | `app/engineering/compatibility.py` | 🟡 100% estático/determinista, no aprende |
-| LangSmith / tracing | `app/ai/tracing.py`, `app/ai/clients/claude_client.py:100` | 🟡 un solo `@traceable`, sin costo ni retrieval |
+```bash
+# Opción A — psql directo (requiere la contraseña de la BD, no el anon/service key)
+psql "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres" \
+  -f backend/db/migrations/0001_knowledge_stats.sql \
+  -f backend/db/migrations/0002_knowledge_edges_reinforcement.sql \
+  -f backend/db/migrations/0003_reforzar_relacion_rpc.sql \
+  -f backend/db/migrations/0004_disenos_racks_langsmith_run_id.sql
 
----
+# Opción B — SQL Editor de Supabase: pegar cada archivo, en orden, y ejecutar.
+```
 
-## Lo que FALTA (pendiente)
-
-### Fase 0 — Cimientos
-- ⬜ **0a (resto):** versionar TODO `backend/app` y sacar `node_modules/` del índice (hoy commiteados, ~3.600 archivos). Se hizo un commit **acotado** solo a los archivos del sprint; el resto de la app sigue untracked en la rama `josue`.
-- 🔦 **0d (baseline):** volcar el esquema actual de Supabase a `0000_baseline.sql` con `pg_dump` (no se debe fabricar a mano).
-
-### Fase 2 — Estadísticas
-- 🔦 Aplicar `0001_knowledge_stats.sql` en Supabase.
-- ⬜ Endpoint/consulta para responder "¿qué SKU falla/recomiendan/reemplazan más?" (la tabla ya se llenará; falta exponerlo).
-
-### Fase 3 — Aprendizaje + grafo (cerrar el bucle) ← **siguiente sugerido**
-- 🟡 La escritura de `reemplaza_por` ya está; falta el **upsert atómico** (aplicar `0002` y migrar el select+update actual a `on conflict`).
-- ⬜ **Cerrar el bucle de LECTURA:** que `app/ai/context_builder.py` (o `compatibility.py`) lea `knowledge_graph.get_relations(sku)` e inyecte al prompt de Claude (ej. *"LRS7355 suele reemplazarse por LRS7410, confidence 0.9"*). **Hoy el grafo es write-only — sin esto no aporta valor al modelo.**
-- ⬜ Relaciones `evitar_con` / `compatible_con` (además de `reemplaza_por`).
-
-### Fase 4 — PromotionEngine
-- 🟡 Hoy solo se marca `validada=True` al llegar a 50 ocurrencias, dentro del processor.
-- ⬜ Motor explícito con estados intermedios (1→5 importante→20 candidata→50 permanente) y **materialización a `reglas_armado`** (tabla que el RAG ya consume).
-
-### Fase 5 — LangSmith / observabilidad
-- ⬜ Span `run_type="retriever"` en `app/ai/rag/search.py` (top_k, scores, IDs de chunk).
-- ⬜ Mapear tokens a `usage_metadata` para que LangSmith calcule **costo**.
-- ⬜ Incluir el **system prompt real** en la traza.
-- ⬜ Persistir el `run_id` en `disenos_racks` para correlacionar fila ↔ traza.
-- ⬜ Trazar la 2ª ruta LLM sin instrumentar (`app/services/diseno_service.py:265`).
-
-### Limpieza / deuda técnica
-- ⬜ Eliminar el duplicado muerto `app/services/pm_rackbot/*` (el canónico es `app/services/*`).
-- ⬜ Vaciar/decidir stubs de 0 bytes: `app/engineering/{corrections,rules,replacements,recommendations,engine}.py`, `app/graph/*`, `app/models/knowledge.py`, `app/schemas/{knowledge,graph}.py`.
-- ⬜ Unificar `normalizar_sku` (sku_diff) con `_codigo_base` (validator_engine) en un único normalizador.
+También sigue pendiente el baseline (`0000_baseline.sql`, `pg_dump --schema-only`)
+mencionado en `backend/db/migrations/README.md` — mismo bloqueo de credenciales.
 
 ---
+
+## Decisiones tomadas en esta ronda
+- **Umbral de confidence:** confirmado 30 (confidence máx ≈0.95) / 50 (promoción
+  a permanente), tal como ya estaba en el código.
+- **`node_modules` en git:** sacado del índice (no del disco) y agregado a `.gitignore`.
+- **Heurística v1 de `evitar_con`/`compatible_con`** (nueva, documentada en
+  `learning.py`): cuando un reemplazo ocurre, el SKU nuevo se marca
+  `compatible_con` las piezas de OTRA familia que sobrevivieron sin cambio en el
+  proyecto corregido (máx. 5 por corrección, para no generar aristas O(n²)).
+  Cuando una pieza se elimina sin sustituto, se marca `evitar_con` esas mismas
+  piezas de contexto — señal conservadora, a validar con datos reales conforme
+  se acumulen correcciones.
 
 ## Decisiones abiertas (a confirmar)
-- **Umbral de confidence:** hoy `confidence = min(0.95, ocurrencias/30)` y promoción a permanente en 50. El brief mencionaba 30 y 50 — confirmar.
 - **Emparejamiento viejo↔nuevo** cuando cambian varias piezas: v1 solo empareja 1↔1 por familia; los casos N↔M quedan como altas/bajas sueltas.
-- **`node_modules` en git:** ¿sacarlos del control de versiones? (recomendado).
+- **Bug preexistente detectado (fuera de alcance de este sprint):**
+  `app/services/diseno_service.py` importa `consultar_reglas_armado` y
+  `consultar_correcciones_relevantes` desde `reglas_service.py`, pero esas
+  funciones no existen ahí — el módulo falla al importarse. No rompe nada hoy
+  porque nada más lo importa (código muerto/inalcanzable), pero si se planea
+  reactivar el "Agente de Ensamble rápido" hay que resolverlo primero.
 
 ---
 
@@ -114,7 +118,9 @@ Usuario → Claude → Proyecto → Usuario corrige → CorrectionProcessor
 ```bash
 cd backend
 python tests/test_sku_diff.py     # 6 tests
-python tests/test_learning.py     # 4 tests
+python tests/test_learning.py     # 6 tests (incluye evitar_con/compatible_con)
 ```
-El flujo end-to-end (guardar corrección real → métricas → grafo) requiere
-credenciales de Supabase/Anthropic/Voyage y aplicar las migraciones `0001`/`0002`.
+El flujo end-to-end (guardar corrección real → métricas → grafo → promoción →
+contexto inyectado a Claude) requiere credenciales de Supabase/Anthropic/Voyage
+(ya en `.env`) y aplicar las migraciones `0001`–`0004` (ver sección de infra
+externa arriba).
