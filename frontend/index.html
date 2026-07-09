@@ -442,7 +442,7 @@
                     .from('catalogo_piezas')
                     .select('codigo_sku, nombre, tipo, longitud_metros, altura_metros, profundidad_metros, url_modelo_glb');
 
-                if (error) throw error;
+                if (error) throw error; 
 
                 catalogoCache.clear();
                 if (data) {
