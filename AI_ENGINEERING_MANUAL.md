@@ -514,3 +514,52 @@ Compresor Draco CAD con 0 B).
 
 Verificado con `flutter analyze`: 0 issues. Backend: 12/12 tests, import
 completo sin errores.
+
+### Historial — fix de rate-limit en /rag/sync, modulo de arquitectura ampliado
+
+Sesion de seguimiento (mismo dia): el usuario reporto un log de produccion con
+`/rag/sync` devolviendo 500 tres veces seguidas, siempre agotando los 3
+reintentos contra `RateLimitError` de Voyage AI (tier gratis: 3 RPM / 10K TPM,
+sin metodo de pago). Tambien pidio "explayar" el modulo de Arquitectura del
+Sistema y una guia para probar de punta a punta que el sistema aprende de
+verdad.
+
+- **Causa raiz del rate-limit — no era solo el backoff:** `CatalogoIngestor.sync()`
+  y `CorreccionesIngestor.sync()` llamaban a `embedding_service.embed_text()`
+  **una vez por cada fila** (79 piezas de catalogo + ~6 correcciones), aunque
+  el proveedor (`voyage_provider.py`) ya tenia `embed_documents()` implementado
+  para mandar varios textos en una sola llamada. Con 3 RPM, 79 llamadas
+  secuenciales agotan el limite casi de inmediato.
+- **Fix aplicado (dos partes):**
+  1. `voyage_provider.py`: se separo el manejo de `RateLimitError` del resto
+     de errores transitorios — backoff propio de `21 * intento` segundos
+     (suficiente para que el limite de 3 RPM se libere) en vez del backoff
+     corto de `2 * intento` que ya usaban timeouts/desconexiones.
+  2. `catalogo.py` y `correcciones.py`: reescritos en dos pasadas. La primera
+     pasada calcula checksums y decide que filas cambiaron **sin llamar a
+     Voyage**. La segunda pasada embebe SOLO las filas pendientes, agrupadas
+     en lotes de 20 via `embed_documents()`, con una pausa proactiva de 21s
+     entre lotes si hay mas de uno. Resultado: un sync completo de las 79
+     piezas pasa de ~79 llamadas a Voyage a ~4, y ya no depende de que el
+     reintento reactivo alcance — la mayoria de los sincronizados de aqui en
+     adelante (solo hay cambios incrementales) ni siquiera necesitan un
+     segundo lote.
+- **Modulo "Arquitectura del Sistema" — ampliado:** cada nodo ahora tiene
+  capitulo del manual de referencia (`capituloManual`), que recibe
+  (`entradas`) y que entrega (`salidas`) — visible al tocar el nodo. Se
+  agrego el nodo `ventas` (Ventas / Cotizador IA, estado "futuro", conectado
+  desde Generadores) reflejando la iniciativa separada de Ventas/Cotizador
+  discutida y confirmada con el usuario. Se agregaron dos listas numeradas
+  debajo del diagrama: **Flujo 1 — Como se genera un diseño** (9 pasos, del
+  mensaje del cliente a los archivos entregados) y **Flujo 2 — Como aprende
+  el sistema** (6 pasos, de una correccion manual a una regla promovida en
+  `reglas_armado`). Tocar un paso resalta el nodo correspondiente en el mapa.
+  Sigue siendo contenido 100% estatico, sin llamadas al backend.
+- **Guia de pruebas de aprendizaje continuo:** documentada para el usuario en
+  la conversacion (no se creo un archivo nuevo) — cubre como verificar con
+  datos reales que una correccion manual efectivamente refuerza el
+  Knowledge Graph, que la siguiente solicitud usa lo aprendido, y que
+  PromotionEngine materializa una regla al cruzar 50 repeticiones.
+
+Verificado con `flutter analyze`: 0 issues. Backend: 12/12 tests (`test_sku_diff.py`
++ `test_learning.py`), import completo (`app.main`) sin errores.

@@ -52,12 +52,26 @@ class VoyageEmbeddingProvider(EmbeddingProvider):
         self.client = voyageai.Client(api_key=api_key)
 
     def _embed_con_reintentos(self, textos: List[str], input_type: str):
-        """Reintenta con backoff exponencial ante rate-limits/errores transitorios
-        del lado de Voyage — antes una sola llamada fallida tumbaba todo /rag/sync."""
+        """Reintenta ante rate-limits/errores transitorios de Voyage — antes una
+        sola llamada fallida tumbaba todo /rag/sync.
+
+        RateLimitError tiene su propio backoff, mas largo: el tier gratis de
+        Voyage es 3 RPM (una solicitud cada ~20s) — el backoff corto que basta
+        para timeouts/conexion (2s, 4s, 6s) no alcanza a que el limite se
+        libere, asi que los 3 reintentos se agotaban siempre.
+        """
         ultimo_error: Exception | None = None
         for intento in range(1, MAX_REINTENTOS + 1):
             try:
                 return self.client.embed(textos, model=self.MODEL, input_type=input_type)
+            except RateLimitError as e:
+                ultimo_error = e
+                log.warning(
+                    "Voyage rate limit (tier gratis: 3 RPM) — reintento %d/%d",
+                    intento, MAX_REINTENTOS,
+                )
+                if intento < MAX_REINTENTOS:
+                    time.sleep(21 * intento)
             except REINTENTABLES as e:
                 ultimo_error = e
                 log.warning(

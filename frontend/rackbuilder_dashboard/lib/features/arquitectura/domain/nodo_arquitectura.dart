@@ -9,6 +9,9 @@ class NodoArquitectura {
   final IconData icon;
   final EstadoNodo estado;
   final Offset posicion; // fraccion 0..1 del canvas
+  final String? capituloManual; // referencia a AI_ENGINEERING_MANUAL.md
+  final String entradas; // que recibe este componente
+  final String salidas; // que produce/entrega este componente
   const NodoArquitectura({
     required this.id,
     required this.label,
@@ -16,6 +19,9 @@ class NodoArquitectura {
     required this.icon,
     required this.posicion,
     this.estado = EstadoNodo.implementado,
+    this.capituloManual,
+    this.entradas = "",
+    this.salidas = "",
   });
 }
 
@@ -25,6 +31,18 @@ class ConexionArquitectura {
   final String? etiqueta;
   final bool observabilidad; // true = LangSmith observando (linea punteada distinta)
   const ConexionArquitectura(this.desde, this.hacia, {this.etiqueta, this.observabilidad = false});
+}
+
+/// Un paso numerado dentro de uno de los dos flujos explicados debajo del
+/// diagrama: la generacion de un diseno y el aprendizaje continuo a partir
+/// de correcciones. Cada paso apunta al mismo `id` usado en ArquitecturaData.nodos
+/// para que la UI pueda resaltarlo si el usuario lo toca.
+class PasoFlujo {
+  final int numero;
+  final String nodoId;
+  final String titulo;
+  final String detalle;
+  const PasoFlujo(this.numero, this.nodoId, this.titulo, this.detalle);
 }
 
 /// Contenido estatico -- refleja la arquitectura REAL descrita en
@@ -41,20 +59,28 @@ class ArquitecturaData {
       posicion: Offset(0.06, 0.5),
       descripcion: "Vendedor o cliente escribe por Telegram: texto, imagenes o PDF "
           "de un rack que necesita.",
+      entradas: "Mensaje de texto, foto de un rack existente, PDF de una cotizacion previa.",
+      salidas: "Solicitud cruda enviada al bot de Telegram.",
     ),
     NodoArquitectura(
       id: "fastapi", label: "FastAPI", icon: Icons.dns,
       posicion: Offset(0.22, 0.5),
       descripcion: "Backend (app/main.py + routers/ + telegram/): recibe la solicitud "
           "y orquesta el flujo completo. Nunca contiene logica de negocio.",
+      capituloManual: "Cap. 2 - Estructura del backend",
+      entradas: "Webhook de Telegram o request HTTP del dashboard Flutter.",
+      salidas: "Llama a Context Builder y devuelve la respuesta final (PDF, XLSX, GLB, mensaje).",
     ),
     NodoArquitectura(
       id: "context_builder", label: "Context Builder", icon: Icons.build_circle_outlined,
       posicion: Offset(0.40, 0.5),
-      descripcion: "app/ai/context_builder.py: arma el texto final para Claude — "
+      descripcion: "app/ai/context_builder.py: arma el texto final para Claude -- "
           "proyecto anterior + catalogo filtrado (Compatibility Engine) + "
           "correcciones (RAG) + relaciones aprendidas (Knowledge Graph). "
           "No decide nada, solo junta lo que ya recuperaron los demas motores.",
+      capituloManual: "Cap. 5 - Context Builder",
+      entradas: "Solicitud del usuario + historial del proyecto si existe.",
+      salidas: "Un unico prompt de texto, ya enriquecido, listo para Claude.",
     ),
     NodoArquitectura(
       id: "rag", label: "RAG\n(pgvector)", icon: Icons.manage_search,
@@ -62,6 +88,9 @@ class ArquitecturaData {
       descripcion: "app/ai/rag/*: busca correcciones parecidas por similitud "
           "semantica (Voyage AI, 1024 dims) en knowledge_chunks. Nunca decide, "
           "solo recupera evidencia.",
+      capituloManual: "Cap. 6 - RAG y busqueda semantica",
+      entradas: "Descripcion del rack solicitado (texto plano).",
+      salidas: "Top-N correcciones y piezas de catalogo mas similares, con su score.",
     ),
     NodoArquitectura(
       id: "graph", label: "Knowledge\nGraph", icon: Icons.hub_outlined,
@@ -69,35 +98,50 @@ class ArquitecturaData {
       descripcion: "app/ai/rag/graph.py: relaciones reemplaza_por / evitar_con / "
           "compatible_con entre SKUs, reforzadas atomicamente (RPC "
           "reforzar_relacion) cada vez que hay una correccion (Sprint 2).",
+      capituloManual: "Cap. 8 - Knowledge Graph y aprendizaje continuo",
+      entradas: "SKU afectado + tipo de correccion detectada por SkuDiffExtractor.",
+      salidas: "Relaciones con peso (occurrence count) que el Context Builder inyecta al prompt.",
     ),
     NodoArquitectura(
       id: "claude", label: "Claude\n(Proyectista)", icon: Icons.psychology_outlined,
       posicion: Offset(0.58, 0.5),
       descripcion: "Unico LLM del sistema (claude_client.py). Recibe el contexto ya "
-          "armado y razona: diseño, despiece, cotizacion, JSON — un solo turno, "
+          "armado y razona: diseno, despiece, cotizacion, JSON -- un solo turno, "
           "sin tool-calling dinamico. Nunca calcula cargas ni compatibilidades.",
+      capituloManual: "Cap. 4 y 7.11 - Un unico Claude, por que basta",
+      entradas: "Prompt final del Context Builder.",
+      salidas: "JSON estructurado: despiece, dimensiones, texto de respuesta al cliente.",
     ),
     NodoArquitectura(
       id: "engineering", label: "Engineering\nEngine", icon: Icons.engineering_outlined,
       posicion: Offset(0.74, 0.5),
       descripcion: "validator_engine.py + compatibility.py: deterministas, sin IA. "
           "Verifican reglas estructurales, NOM-006/251, cargas, factor de "
-          "seguridad. Si hay error bloqueante, el diseño VUELVE a Claude "
+          "seguridad. Si hay error bloqueante, el diseno VUELVE a Claude "
           "(max. 2 intentos) antes de responder al cliente.",
+      capituloManual: "Cap. 3 - Engineering Engine (deterministico)",
+      entradas: "JSON de diseno propuesto por Claude.",
+      salidas: "Veredicto: aprobado, o lista de errores que regresan a Claude para corregir.",
     ),
     NodoArquitectura(
       id: "promotion", label: "Promotion\nEngine", icon: Icons.trending_up,
       posicion: Offset(0.58, 0.8),
       descripcion: "app/engineering/promotion.py (Sprint 2): cuando una relacion del "
           "grafo se repite mucho (50+ correcciones), se materializa como regla "
-          "permanente en reglas_armado — el sistema deja de \"redescubrirla\" cada vez.",
+          "permanente en reglas_armado -- el sistema deja de \"redescubrirla\" cada vez.",
+      capituloManual: "Cap. 8.4 - Umbrales de promocion (5 / 20 / 50)",
+      entradas: "Contador de ocurrencias de cada relacion del Knowledge Graph.",
+      salidas: "Regla nueva en reglas_armado cuando se cruza el umbral de 50 repeticiones.",
     ),
     NodoArquitectura(
       id: "generadores", label: "Generadores", icon: Icons.picture_as_pdf_outlined,
       posicion: Offset(0.90, 0.5),
       descripcion: "app/ai/generators/*: PDF de planos, XLSX de despiece/cotizacion, "
-          "modelo 3D (GLB/DAE) y renders PNG — deterministas, a partir del JSON "
+          "modelo 3D (GLB/DAE) y renders PNG -- deterministas, a partir del JSON "
           "final que ya paso el validador.",
+      capituloManual: "Cap. 9 - Generadores de salida",
+      entradas: "JSON de diseno ya aprobado por el Engineering Engine.",
+      salidas: "Archivos entregables: PDF, XLSX, GLB/DAE, PNG.",
     ),
     NodoArquitectura(
       id: "supabase", label: "Supabase", icon: Icons.storage_outlined,
@@ -105,6 +149,9 @@ class ArquitecturaData {
       descripcion: "Postgres + pgvector + Storage: la unica fuente de verdad "
           "(catalogo, reglas, correcciones, chunks, relaciones, historial, "
           "archivos). El vector store nunca reemplaza estas tablas.",
+      capituloManual: "Cap. 1 - Fuente unica de verdad",
+      entradas: "Escrituras desde Claude, Engineering, RAG, Knowledge Graph y Promotion Engine.",
+      salidas: "Toda lectura del sistema: catalogo, historial, chunks, relaciones, archivos.",
     ),
     NodoArquitectura(
       id: "langsmith", label: "LangSmith", icon: Icons.visibility_outlined,
@@ -113,15 +160,34 @@ class ArquitecturaData {
       descripcion: "app/ai/tracing.py: traza cada llamada a Claude (prompt real, "
           "tokens, costo via usage_metadata, retriever, run_id correlacionado "
           "con disenos_racks). No-op si no esta configurado.",
+      capituloManual: "Cap. 10 - Observabilidad",
+      entradas: "Cada llamada a Claude, RAG y Engineering Engine (via decoradores).",
+      salidas: "Trazas visibles en el dashboard de LangSmith: costo, latencia, prompt exacto.",
     ),
     NodoArquitectura(
       id: "multiagente", label: "Multi-agente\n(LangGraph)", icon: Icons.share_outlined,
       posicion: Offset(0.74, 0.85),
       estado: EstadoNodo.noImplementado,
       descripcion: "Descartado A PROPOSITO (manual, capitulo 7.11): \"un unico "
-          "Claude basta\" — no hay razonamiento verdaderamente independiente "
-          "entre dominios en el diseño de racks. Solo se justificaria si "
+          "Claude basta\" -- no hay razonamiento verdaderamente independiente "
+          "entre dominios en el diseno de racks. Solo se justificaria si "
           "aparece un dominio distinto (ej. Ventas) con decisiones propias.",
+      capituloManual: "Cap. 7.11 / 7.12 - Cuando SI justificaria multi-agente",
+      entradas: "-",
+      salidas: "-",
+    ),
+    NodoArquitectura(
+      id: "ventas", label: "Ventas /\nCotizador IA", icon: Icons.storefront_outlined,
+      posicion: Offset(0.90, 0.85),
+      estado: EstadoNodo.noImplementado,
+      descripcion: "Futuro agente independiente (NO construido aun, iniciativa separada "
+          "acordada con el usuario): descuentos por volumen, propuesta comercial "
+          "persuasiva separada del PDF tecnico, historial de cliente tipo CRM. "
+          "Seria el primer caso real que justifica un segundo agente, porque razona "
+          "sobre un dominio distinto (negocio) con reglas propias, no sobre ingenieria.",
+      capituloManual: "Cap. 7.12 - Dominio independiente que si justificaria multi-agente",
+      entradas: "JSON de cotizacion actual + historial de compras del cliente (a definir).",
+      salidas: "Propuesta comercial con descuentos y seguimiento -- pendiente de diseno.",
     ),
   ];
 
@@ -140,8 +206,50 @@ class ArquitecturaData {
     ConexionArquitectura("claude", "supabase"),
     ConexionArquitectura("graph", "promotion"),
     ConexionArquitectura("promotion", "supabase"),
+    ConexionArquitectura("generadores", "ventas", etiqueta: "futuro: cotizacion con reglas propias"),
     ConexionArquitectura("langsmith", "claude", observabilidad: true),
     ConexionArquitectura("langsmith", "engineering", observabilidad: true),
     ConexionArquitectura("langsmith", "rag", observabilidad: true),
+  ];
+
+  /// Flujo 1: como se genera un diseno de rack, desde que el usuario escribe
+  /// hasta que recibe los archivos. Los pasos siguen el camino "feliz"; el
+  /// paso 7 documenta el unico bucle real del sistema (correccion del validador).
+  static const flujoGeneracion = [
+    PasoFlujo(1, "usuario", "El cliente pide un rack",
+        "Por Telegram, en texto libre, con o sin foto/PDF de referencia."),
+    PasoFlujo(2, "fastapi", "FastAPI recibe la solicitud",
+        "El webhook de Telegram entrega el mensaje al backend, que no decide nada, solo orquesta."),
+    PasoFlujo(3, "rag", "RAG busca correcciones parecidas",
+        "Se buscan por similitud semantica (Voyage AI) correcciones previas relevantes al tipo de rack pedido."),
+    PasoFlujo(4, "graph", "Knowledge Graph aporta relaciones aprendidas",
+        "SKUs que se suelen reemplazar, evitar o combinar entre si, acumulados de correcciones pasadas."),
+    PasoFlujo(5, "context_builder", "Context Builder arma el prompt final",
+        "Combina el catalogo filtrado, las correcciones del RAG y las relaciones del grafo en un solo texto."),
+    PasoFlujo(6, "claude", "Claude disena el rack",
+        "Un unico turno de razonamiento: dimensiones, despiece, cotizacion -- todo en un JSON estructurado."),
+    PasoFlujo(7, "engineering", "Engineering Engine valida (determinista)",
+        "Si hay un error bloqueante (NOM-006/251, carga, factor de seguridad), el diseno regresa a Claude -- maximo 2 intentos."),
+    PasoFlujo(8, "generadores", "Se generan los entregables",
+        "PDF de planos, XLSX de despiece y cotizacion, modelo 3D GLB/DAE y renders PNG."),
+    PasoFlujo(9, "usuario", "El cliente recibe la respuesta",
+        "Archivos + mensaje de texto, todo en el mismo hilo de Telegram."),
+  ];
+
+  /// Flujo 2: como una correccion manual (un vendedor corrigiendo un diseno)
+  /// termina convirtiendose en conocimiento reutilizable del sistema.
+  static const flujoAprendizaje = [
+    PasoFlujo(1, "usuario", "Alguien corrige un diseno",
+        "Ej.: cambia un SKU por otro, o marca que dos piezas no deben ir juntas -- via Telegram o el dashboard."),
+    PasoFlujo(2, "graph", "SkuDiffExtractor detecta el cambio",
+        "Compara el despiece original contra el corregido y extrae que SKU cambio por cual, o que combinacion se evito."),
+    PasoFlujo(3, "graph", "Se refuerza la relacion en el grafo",
+        "RPC atomico reforzar_relacion incrementa el contador de esa relacion especifica (reemplaza_por / evitar_con / compatible_con)."),
+    PasoFlujo(4, "graph", "El contador cruza umbrales",
+        "5 repeticiones = relacion importante, 20 = candidata a regla, 50 = se promueve a regla permanente."),
+    PasoFlujo(5, "promotion", "Promotion Engine materializa la regla",
+        "Al llegar a 50, la relacion deja de vivir solo como dato del grafo y se escribe como regla en reglas_armado."),
+    PasoFlujo(6, "context_builder", "La proxima solicitud ya usa lo aprendido",
+        "El Context Builder inyecta la relacion (o la regla ya promovida) directo en el prompt de Claude, sin que nadie la repita manualmente."),
   ];
 }
