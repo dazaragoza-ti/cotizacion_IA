@@ -438,3 +438,64 @@ CorrectionProcessor, cableado en el flujo vivo), esta sesion cerro el resto:
   `package.json`, `package-lock.json` — espejos de sus equivalentes en
   `backend/`): si no tienen un proposito de despliegue especifico, valdria
   la pena eliminarlos para evitar que diverjan silenciosamente.
+
+### Historial — revision senior (empty files, BD, ML, frontend) + nuevas features
+
+Sesion de seguimiento: se lanzaron 3 revisiones en paralelo (archivos vacios
+del backend, Supabase/BD + pipeline de embeddings, Flutter) actuando como
+senior de cada area, y se ejecuto el plan resultante:
+
+- **44 archivos vacios eliminados** (`app/agents/*`, `app/tools/*`,
+  `app/graph/*`, `app/engineering/{calculator,coordinates,corrections,
+  dimensions,engine,loads,planner,recommendations,replacements,rules}.py`,
+  `app/models/*`, `app/schemas/*`, `app/core/{dependencies,settings}.py`,
+  `app/ai/rag/ingestors/{manuales,proyectos,reglas}.py`) — esqueleto de la
+  arquitectura multi-agente de los capitulos 1/6/7, descartada por decision
+  de diseno del propio manual. Se discutio explicitamente con el usuario si
+  valia la pena reconstruir ese multi-agente (ver seccion de Ventas/Cotizador
+  abajo) antes de eliminar — se opto por NO reconstruirlo para el alcance
+  actual.
+- **`app/core/logger.py` implementado**: antes NO existia ningun
+  `logging.basicConfig()` en el proyecto — la mayoria de los `log.info(...)`
+  de las 19 loggers de `app/` nunca se veian. Ahora configurado al arrancar
+  (`app/main.py`), nivel via `LOG_LEVEL`.
+- **`repository.proyectos()` eliminado** (tabla `proyectos_pm`, sin caller).
+- **Documentacion de migraciones corregida**: `knowledge_stats`/
+  `increment_stat` (migracion 0001) YA estaba aplicada en produccion — se
+  confirmo invocando el RPC en vivo. El estado anterior la daba por
+  pendiente por error.
+- **`voyage_provider.py`**: retry con backoff ante rate-limit/errores
+  transitorios (antes una sola falla tumbaba `/rag/sync` completo).
+- **Nueva migracion `0006_indices_sugeridos.sql`**: indices sobre
+  `correcciones_armado` y `knowledge_edges` (patrones de consulta ya
+  existentes en el codigo, sin soporte de indice).
+- **Flutter**: 0 warnings (antes 3, imports sin uso); dos features nuevas
+  con el mismo patron de capas del resto (`estadisticas`: pantalla sobre
+  `/stats/top` y `/stats/sku/{sku}`, antes sin ninguna superficie humana;
+  `rag`: buscador semantico + boton de sincronizacion sobre `/rag/search`
+  y `/rag/sync`); retry interceptor en `ApiClient`; `AppTheme.dark`
+  definida pero NO activada (ver nota abajo).
+- **`main.dart` reconfirmado presente y correcto** (el usuario pidio
+  "agregarlo de nuevo" por precaucion; ya estaba desde el merge anterior).
+
+#### Nota — tema oscuro parcial, a proposito
+`AppTheme.dark` existe pero `main.dart` sigue forzando `theme: AppTheme.light`
+sin `darkTheme`/`themeMode`. Motivo: casi todos los widgets propios
+(`PanelCard`, `KpiCard`, etc. en `shared/widgets/app_widgets.dart`, y cada
+pantalla) usan colores de `AppColors` fijos en vez de consultar
+`Theme.of(context)` — activar `ThemeMode.system` hoy dejaria paneles claros
+flotando sobre un fondo oscuro (dark mode roto a medias), peor que no
+tenerlo. Falta retocar esos widgets antes de activarlo.
+
+#### Discusion — ¿el multi-agente descartado si tendria sentido para Ventas/Cotizador?
+El usuario señalo, correctamente, que el bot ya entrega cotizacion (ademas
+del render 3D, planos, despiece). Al revisar el codigo: la cotizacion de
+hoy es aritmetica pura (`importe = pzas × precio_catalogo`, generada por el
+mismo Claude que diseña, en `exportar_xlsx.py`) — no hay razonamiento de
+ventas independiente todavia, asi que un segundo agente NO se justificaba
+para lo que existe. El usuario confirmo que SI quiere construir eso de
+verdad: descuentos/paquetes por volumen, propuesta comercial persuasiva
+separada del reporte tecnico, e historial de cliente tipo CRM. Esto queda
+como **iniciativa separada, pendiente de diseño propio** (tablas nuevas en
+Supabase, punto de generacion de la propuesta, posible pantalla en Flutter)
+antes de implementarse — no se toco codigo de esto en esta sesion.
