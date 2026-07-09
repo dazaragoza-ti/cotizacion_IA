@@ -20,6 +20,7 @@ Antes del Sprint 2 el esquema vivía **solo** en el proyecto remoto de Supabase
 | `0002_knowledge_edges_reinforcement.sql` | Índice único para reforzar relaciones (Sprint 2, Fase 3) | ⬜ pendiente |
 | `0003_reforzar_relacion_rpc.sql` | RPC `reforzar_relacion` — upsert atómico de aristas (Sprint 2, Fase 3, cierre) | ⬜ pendiente |
 | `0004_disenos_racks_langsmith_run_id.sql` | Columna `langsmith_run_id` en `disenos_racks` (Sprint 2, Fase 5) | ⬜ pendiente |
+| `0005_rag_match_knowledge.sql` | RPC `match_knowledge` + constraint única de `knowledge_sources` (sistema RAG) | ✅ aplicada (verificado en vivo) |
 
 ## Pendiente: baseline (0000)
 

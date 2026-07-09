@@ -1,20 +1,17 @@
 """
-Correcciones del proyectista PM — reutiliza la tabla `correcciones_armado`
-(la misma que ya tenías del agente rápido), extendida con columnas para
-guardar el contexto completo: proyecto antes/después, clave, usuario, y de
-dónde vino la corrección (`origen`).
+Correcciones del proyectista PM (reutiliza la tabla correcciones_armado,
+extendida con columnas para guardar el contexto completo: proyecto
+antes/despues, clave, usuario, y de donde vino la correccion -origen-).
 
-Dos orígenes, en la misma tabla:
+Dos origenes, en la misma tabla:
 
-- **manual**: el cliente/vendedor manda un ajuste sobre un proyecto YA
-  generado (ej. "el precio de la cabecera está mal", "sube el segundo nivel
-  20cm"), detectado porque el nuevo proyecto conserva la misma `clave` que
-  el anterior de esa sesión. Es bitácora real de negocio.
+- manual: el cliente/vendedor manda un ajuste sobre un proyecto YA
+  generado, detectado porque el nuevo proyecto conserva la misma clave
+  que el anterior de esa sesion. Es bitacora real de negocio.
 
-- **automatico**: `validador.py` encontró errores/advertencias en un
-  proyecto que generó Claude, sin que nadie tenga que escribir nada. Es
-  control de calidad del modelo — mide qué tan seguido se equivoca, no lo
-  que el cliente pide cambiar.
+- automatico: validador.py encontro errores/advertencias en un proyecto
+  que genero Claude, sin que nadie tenga que escribir nada. Es control
+  de calidad del modelo.
 """
 from __future__ import annotations
 
@@ -39,11 +36,6 @@ def _registrar(
     proyecto_despues: dict | None,
     origen: str,
 ) -> int | None:
-    """
-    Guarda una corrección (manual o automática). Si ya existe una con la
-    misma descripción + clave + origen, solo incrementa veces_repetida en
-    vez de duplicar la fila (mismo patrón que usaba el agente rápido).
-    """
     try:
         existente = (
             supabase.table(TABLA).select("id, veces_repetida")
@@ -74,7 +66,7 @@ def _registrar(
             "tipo_rack": tipo,
             "proyecto_clave": clave,
             "descripcion_error": descripcion,
-            "instruccion_correctiva": descripcion,  # de momento, tal cual; se puede reescribir después
+            "instruccion_correctiva": descripcion,
             "proyecto_json_antes": proyecto_antes,
             "proyecto_json_despues": proyecto_despues,
             "veces_repetida": 1,
@@ -90,8 +82,8 @@ def _registrar(
             )
             return nueva_id
         return None
-    except Exception as e:  # noqa: BLE001 — no debe romper la respuesta al cliente
-        log.exception("_registrar(origen=%s) falló: %s", origen, e)
+    except Exception as e:
+        log.exception("_registrar(origen=%s) fallo: %s", origen, e)
         return None
 
 
@@ -105,15 +97,6 @@ def _indexar_en_vivo(
     proyecto_clave: str | None,
     origen: str,
 ) -> None:
-    """
-    Indexa la corrección al vector store EN CUANTO se guarda — antes, esto
-    solo pasaba al correr POST /rag/sync a mano, así que una corrección
-    recién capturada no era buscable hasta la siguiente sincronización
-    manual. Ahora queda disponible para el siguiente mensaje del bot.
-    Si falla (Supabase RAG sin configurar, sin API key de embeddings...),
-    no debe romper el registro de la corrección — ya se guardó en la tabla,
-    el batch /rag/sync la recogerá de todos modos más tarde.
-    """
     try:
         documento = correccion_to_document({
             "tipo_rack": tipo_rack,
@@ -137,8 +120,8 @@ def _indexar_en_vivo(
                 "origen": origen,
             },
         )
-    except Exception as e:  # noqa: BLE001 — indexar es un "extra", nunca debe tumbar el registro
-        log.warning("No se pudo indexar la corrección %s en vivo (se recogerá en el próximo /rag/sync): %s", correccion_id, e)
+    except Exception as e:
+        log.warning("No se pudo indexar la correccion %s en vivo: %s", correccion_id, e)
 
 
 def registrar_correccion(
@@ -150,7 +133,6 @@ def registrar_correccion(
     proyecto_antes: dict,
     proyecto_despues: dict,
 ) -> int | None:
-    """Opción A: ajuste manual pedido por el cliente/vendedor sobre un proyecto ya generado."""
     return _registrar(
         session_id=session_id, tg_user_id=tg_user_id, tipo=tipo, clave=clave,
         descripcion=comentario_cliente, proyecto_antes=proyecto_antes,
@@ -166,11 +148,6 @@ def registrar_correccion_automatica(
     detalle_validacion: str,
     proyecto: dict,
 ) -> int | None:
-    """
-    Opción B: lo que validador.py marcó (errores y/o advertencias) en un
-    proyecto recién generado, sin intervención humana. No hay "antes" —
-    es una sola fotografía del proyecto con lo que falló.
-    """
     return _registrar(
         session_id=session_id, tg_user_id=tg_user_id, tipo=tipo, clave=clave,
         descripcion=detalle_validacion, proyecto_antes=None,
@@ -179,11 +156,6 @@ def registrar_correccion_automatica(
 
 
 def es_correccion(proyecto_anterior: dict | None, proyecto_nuevo: dict | None) -> bool:
-    """
-    Señal simple y determinista: si el proyecto nuevo conserva la misma
-    `clave` que el anterior, es porque Claude decidió que era un ajuste al
-    mismo proyecto (así lo indican las instrucciones del sistema), no uno nuevo.
-    """
     if not proyecto_anterior or not proyecto_nuevo:
         return False
     clave_antes = (proyecto_anterior.get("clave") or "").strip()
