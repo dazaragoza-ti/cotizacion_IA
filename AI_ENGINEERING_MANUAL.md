@@ -358,40 +358,6 @@ CorrectionProcessor, cableado en el flujo vivo), esta sesion cerro el resto:
    `knowledge_stats`/`/stats/*` SI funcionan ya (migracion 0001 aplicada).
    Ver instrucciones exactas en `backend/db/migrations/README.md`.
 
-### Resuelto en la sesion de seguimiento (mismo dia)
-
-2. ~~Visor 3D — confirmar despliegue real~~ **Confirmado:** se hizo `curl`
-   directo al sitio de GitHub Pages en vivo
-   (dazaragoza-ti.github.io/cotizacion_IA/index.html) — el fix de
-   `DRACOLoader` YA esta desplegado y es identico al del repo. No requiere
-   ninguna accion.
-3. ~~`ejemplo_proyecto_demo.json` con errores estructurales~~ **Corregido**
-   (revision R1): reconstruido con dimensiones/cantidades calculadas a
-   partir de las formulas reales de `validator_engine.py` y codigos
-   verificados contra el catalogo real. `engineering/evaluacion.py` ahora
-   reporta 3/3 ejemplos validos (antes 2/3), con cero errores y cero
-   advertencias en el nuevo ejemplo.
-4. ~~Bug en `diseno_service.py`~~ **Corregido:** se implementaron
-   `consultar_reglas_armado()` y `consultar_correcciones_relevantes()` en
-   `reglas_service.py` (leen `reglas_armado`/`correcciones_armado` desde
-   Supabase, filtradas por tipo_rack + universales). El modulo ya importa
-   y funciona correctamente contra la base en vivo — sigue "inalcanzable"
-   en el sentido de que nada lo invoca todavia (el Agente de Ensamble
-   rapido no esta cableado a ningun endpoint), pero ya no tiene el bug.
-5. ~~Dashboard Flutter en progreso en paralelo~~ **Fusionado:** el
-   scaffold vacio que trajo `origin/josue` (solo pubspec/README, sin
-   `lib/`) y el WIP local (`lib/` completo, arquitectura por
-   features: `alimentar_ia`, `catalogo`, `dashboard`, `historial`,
-   `modelos_3d`) resultaron ser el MISMO proyecto — se completo agregando
-   el `lib/` faltante. De paso se elimino una version anterior/plana del
-   dashboard que coexistia en el mismo arbol (`lib/screens`,
-   `lib/services`, `lib/widgets`, `lib/models/models.dart`) — confirmado
-   que ningun archivo de `lib/features/*` ni `main.dart` la importaba.
-   Verificado con `flutter pub get` + `flutter analyze`: 0 errores (solo 3
-   warnings preexistentes de imports sin usar). El worktree
-   `.claude/worktrees/josue-flutter-3d` / rama `origin/josue-flutter-3d-viewer`
-   quedan superados por este merge — se pueden limpiar cuando su dueño lo
-   confirme.
 
 ### Decisiones de arquitectura tomadas (para no repetir la discusion)
 
@@ -499,3 +465,52 @@ separada del reporte tecnico, e historial de cliente tipo CRM. Esto queda
 como **iniciativa separada, pendiente de diseño propio** (tablas nuevas en
 Supabase, punto de generacion de la propuesta, posible pantalla en Flutter)
 antes de implementarse — no se toco codigo de esto en esta sesion.
+
+### Historial — bucket de ejemplos, modulo de arquitectura, bug de archivo fantasma
+
+Sesion de seguimiento (mismo dia): el usuario agrego un bucket con racks de
+ejemplo terminados en Supabase Storage (`modelos/modelos 3d terminados/`) y
+carpetas preparadas para precios unitarios/cotizaciones futuras, pidio un
+modulo visual del tipo "red neuronal" de como funciona el proyecto, y
+reporto un bug (modelo eliminado en Supabase que seguia apareciendo en el
+Compresor Draco CAD con 0 B).
+
+- **Bug del archivo fantasma — corregido:** `storage_service.py`
+  (`_infer_modelo_files_from_catalogo`) sintetiza la lista de modelos a
+  partir de la columna `catalogo_piezas.url_modelo_glb` como *ultimo
+  recurso*, cuando el listado real de Storage viene vacio (p. ej. si era
+  el unico archivo de la carpeta). Al borrar el archivo directo en el
+  dashboard de Supabase (sin pasar por la app), la fila de la tabla queda
+  huerfana con una URL que ya no existe — y esa fila fantasma se seguia
+  mostrando con tamaño 0 en vez de omitirse. Ahora se hace HEAD a la URL
+  real: si responde 404 (o el fallback del SDK tampoco confirma que
+  exista), la fila se omite en vez de mostrarse con 0 B.
+- **Bucket de racks de ejemplo — accesible desde Alimentar IA:** se agrego
+  `StorageBucket.modelosTerminados` (bucket `modelos`, raiz fija en
+  `modelos 3d terminados`, separado de `modelos 3d de racks` que administra
+  el Compresor Draco CAD) como tercera pestaña del explorador. Hoy solo
+  contiene el primer ejemplo subido por el usuario
+  (`(-)_RACK_180X61X151.glb`); las carpetas `cotizaciones/Racks` y
+  `precios unitarios/productos` existen pero siguen vacias (placeholders) —
+  nada que ingestar todavia. Pendiente de decidir (no resuelto aqui): si
+  estos racks de ejemplo deben alimentar el RAG/Knowledge Graph de alguna
+  forma automatica, o si por ahora solo sirven de referencia manual.
+- **Nuevo modulo "Arquitectura del Sistema"** (`features/arquitectura/`):
+  visualizacion tipo red — nodos (Usuario, FastAPI, Context Builder, RAG,
+  Knowledge Graph, Claude, Engineering Engine, PromotionEngine,
+  Generadores, Supabase, LangSmith, Multi-agente) conectados segun el flujo
+  real, con un pulso animado viajando por cada conexion. Refleja el estado
+  REAL de cada pieza (verde = implementado, ambar = parcial, gris punteado
+  = descartado a proposito — el nodo "Multi-agente/LangGraph" aparece asi,
+  consistente con la decision del capitulo 7.11). Tocar un nodo muestra su
+  descripcion. Contenido 100% estatico (sin llamadas al backend), sin
+  cubit/datasource — es documentacion viva, no telemetria en vivo.
+- **Migraciones — TODAS (0001-0005) confirmadas aplicadas en produccion**
+  (se corrige el estado anterior: 0002/0003/0004 se creian pendientes,
+  pero ya estaban aplicadas). Solo `0006_indices_sugeridos.sql` (creada
+  en la sesion anterior, son indices de performance, no bloqueantes) sigue
+  pendiente. El hallazgo CRITICO de RLS (seccion de pendientes arriba)
+  sigue sin verificar — no se pudo confirmar con la key disponible.
+
+Verificado con `flutter analyze`: 0 issues. Backend: 12/12 tests, import
+completo sin errores.
