@@ -1,23 +1,16 @@
 {
   "name": "plataforma-racks-backend",
-  "version": "0.1.0",
-  "private": true,
-  "devDependencies": {
-    "@gltf-transform/cli": "^1.7.0"
-  }
-}
-{
-  "name": "backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend de la plataforma de racks (FastAPI + utilidades Node para optimización glTF).",
+  "private": true,
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "@gltf-transform/cli": "^4.4.0"
   }

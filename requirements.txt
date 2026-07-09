@@ -1,11 +1,29 @@
 fastapi==0.104.1
 uvicorn==0.24.0
-PyMuPDF==1.23.8
+PyMuPDF>=1.24.0
 easyocr==1.7.0
-supabase==2.3.5
-pydantic==2.5.0
-groq==0.4.2
+supabase>=2.9.0
+pydantic>=2.7,<3.0.0
+groq>=0.11.0
+anthropic>=0.40.0
 python-dotenv==1.0.0
-python-telegram-bot==20.3
+python-telegram-bot>=21.0
 aiofiles==23.2.1
-httpx==0.25.2
+openpyxl==3.1.5
+reportlab==4.2.5
+
+# --- Motor del proyectista PM (app/ai/: clients, pipelines, generators, knowledge) ---
+numpy
+scipy
+trimesh
+matplotlib
+pillow
+pycollada    # opcional: exportar DAE (importable en SketchUp)
+
+# --- Sistema RAG (app/ai/rag/) ---
+pydantic-settings
+openai        # proveedor de embeddings por defecto (EMBEDDING_PROVIDER=openai en ai/rag/config.py)
+voyageai      # proveedor alterno recomendado por Anthropic (EMBEDDING_PROVIDER=voyage)
+
+# --- Observabilidad (opcional: si falta, app/ai/tracing.py cae a no-op) ---
+langsmith

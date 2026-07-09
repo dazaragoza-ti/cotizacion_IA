@@ -6,6 +6,15 @@
 # Node
 node_modules/
 
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+.pub-cache/
+.pub/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -18,8 +27,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
