@@ -338,13 +338,25 @@ CorrectionProcessor, cableado en el flujo vivo), esta sesion cerro el resto:
 
 ### Pendiente / proximos pasos
 
-1. **Migraciones sin aplicar en Supabase** (`backend/db/migrations/0001` a
-   `0004` — `0005` ya confirmada aplicada): requieren connection string
-   directa de Postgres o pegar el SQL a mano en el SQL Editor. Sin esto:
-   `knowledge_stats` no existe (endpoint `/stats/*` da 503), el upsert
-   atomico de relaciones falla (best-effort, se loguea) y `langsmith_run_id`
-   no se persiste. Ver instrucciones exactas en
-   `backend/db/migrations/README.md`.
+0. **CRITICO — verificar politicas RLS en Supabase (hallazgo de revision senior de BD):**
+   `proyecto_pm_service.py` genera el link del visor 3D embebiendo
+   `SUPABASE_URL` + `SUPABASE_KEY` (la anon key) directamente en la URL,
+   para que el frontend consulte Supabase sin pasar por el backend. Si las
+   politicas RLS de `catalogo_piezas`/`disenos_racks` no estan acotadas
+   (solo lectura, por fila/sesion), cualquiera con ese link tiene acceso de
+   lectura/escritura a esas tablas via la API REST publica de Supabase. No
+   se pudo confirmar el estado de RLS con la key disponible (requiere el
+   dashboard de Supabase o una key con permisos de admin) —
+   **verificarlo manualmente es la accion mas urgente de todo este documento.**
+1. **Migraciones sin aplicar en Supabase** (`backend/db/migrations/0002` a
+   `0004`, mas la nueva `0006` de indices — `0001` y `0005` ya
+   confirmadas aplicadas en vivo, corrigiendo el estado anterior que daba
+   `0001` por pendiente): requieren connection string directa de Postgres
+   o pegar el SQL a mano en el SQL Editor. Sin esto: el upsert atomico de
+   relaciones falla (confirmado con error PGRST202 al invocar el RPC;
+   best-effort, se loguea) y `langsmith_run_id` no se persiste.
+   `knowledge_stats`/`/stats/*` SI funcionan ya (migracion 0001 aplicada).
+   Ver instrucciones exactas en `backend/db/migrations/README.md`.
 
 ### Resuelto en la sesion de seguimiento (mismo dia)
 

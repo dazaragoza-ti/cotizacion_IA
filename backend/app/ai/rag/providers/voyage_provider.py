@@ -1,9 +1,31 @@
+import logging
 import os
+import time
 from typing import List
 
 import voyageai
+from voyageai.error import (
+    APIConnectionError,
+    RateLimitError,
+    ServerError,
+    ServiceUnavailableError,
+    Timeout,
+    TryAgain,
+)
 
 from app.ai.rag.providers.base import EmbeddingProvider
+
+log = logging.getLogger("rag.voyage_provider")
+
+MAX_REINTENTOS = 3
+REINTENTABLES = (
+    APIConnectionError,
+    RateLimitError,
+    ServerError,
+    ServiceUnavailableError,
+    Timeout,
+    TryAgain,
+)
 
 
 class VoyageEmbeddingProvider(EmbeddingProvider):
@@ -29,14 +51,31 @@ class VoyageEmbeddingProvider(EmbeddingProvider):
             )
         self.client = voyageai.Client(api_key=api_key)
 
+    def _embed_con_reintentos(self, textos: List[str], input_type: str):
+        """Reintenta con backoff exponencial ante rate-limits/errores transitorios
+        del lado de Voyage — antes una sola llamada fallida tumbaba todo /rag/sync."""
+        ultimo_error: Exception | None = None
+        for intento in range(1, MAX_REINTENTOS + 1):
+            try:
+                return self.client.embed(textos, model=self.MODEL, input_type=input_type)
+            except REINTENTABLES as e:
+                ultimo_error = e
+                log.warning(
+                    "Voyage embed reintento %d/%d tras error transitorio: %s",
+                    intento, MAX_REINTENTOS, type(e).__name__,
+                )
+                if intento < MAX_REINTENTOS:
+                    time.sleep(2 * intento)
+        raise ultimo_error  # se agotaron los reintentos
+
     def embed_text(self, text: str) -> List[float]:
-        resultado = self.client.embed([text], model=self.MODEL, input_type="document")
+        resultado = self._embed_con_reintentos([text], "document")
         return resultado.embeddings[0]
 
     def embed_documents(self, docs: List[str]) -> List[List[float]]:
-        resultado = self.client.embed(docs, model=self.MODEL, input_type="document")
+        resultado = self._embed_con_reintentos(docs, "document")
         return resultado.embeddings
 
     def embed_query(self, query: str) -> List[float]:
-        resultado = self.client.embed([query], model=self.MODEL, input_type="query")
+        resultado = self._embed_con_reintentos([query], "query")
         return resultado.embeddings[0]

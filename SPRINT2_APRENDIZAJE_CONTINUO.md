@@ -40,7 +40,7 @@ Usuario → Claude → Proyecto → Usuario corrige → CorrectionProcessor
 |---|---|---|---|
 | 0 — Cimientos | SkuDiffExtractor, planificador puro, convención de migraciones | `sku_diff.py`, `learning.py`, `db/migrations/` | ✅ (0a: `node_modules` fuera del índice, `backend/app` versionado) |
 | 1 — Orquestación | CorrectionProcessor punto único de entrada, cableado en el flujo vivo | `correction_processor.py`, `proyecto_pm_service.py` | ✅ |
-| 2 — Estadísticas | Contadores por SKU (`knowledge_stats`) + endpoint para consultarlos | `metrics.py`, `routers/stats.py` (`GET /stats/top`, `GET /stats/sku/{sku}`) | ✅ código · 🔦 falta aplicar migración 0001 |
+| 2 — Estadísticas | Contadores por SKU (`knowledge_stats`) + endpoint para consultarlos | `metrics.py`, `routers/stats.py` (`GET /stats/top`, `GET /stats/sku/{sku}`) | ✅ completo — migración 0001 confirmada aplicada en vivo |
 | 3 — Grafo (cierre) | Upsert atómico de aristas, relaciones `evitar_con`/`compatible_con`, lectura del grafo inyectada al prompt | `graph.py` (`upsert_relation`, `relaciones_relevantes`), `learning.py`, `context_builder.py` | ✅ código · 🔦 falta aplicar migraciones 0002/0003 |
 | 4 — PromotionEngine | Estados explícitos (nueva→importante→candidata→permanente) y materialización en `reglas_armado` | `promotion.py` | ✅ código · 🔦 depende de 0003 para tener `ocurrencias` reales |
 | 5 — LangSmith | Costo (`usage_metadata`), system prompt real en traza, span de retriever, `run_id` en `disenos_racks`, 2ª ruta LLM instrumentada | `tracing.py`, `claude_client.py`, `vector_store.py`, `proyecto_pm_service.py`, `diseno_service.py` | ✅ código · 🔦 falta aplicar migración 0004 |
@@ -68,8 +68,9 @@ Usuario → Claude → Proyecto → Usuario corrige → CorrectionProcessor
 
 ## 🔦 Pendiente de infra externa (requiere acción manual del usuario)
 
-Las 4 migraciones (`0001`–`0004`, en `backend/db/migrations/`) están **redactadas
-pero no aplicadas** en Supabase. No se pudieron aplicar automáticamente en esta
+`0001` y `0005` ya se confirmaron aplicadas en vivo (se corrige el estado anterior,
+que daba `0001` por pendiente). Quedan 3 migraciones + 1 nueva (`0002`, `0003`,
+`0004`, `0006`) **redactadas pero no aplicadas** en Supabase. No se pudieron aplicar automáticamente en esta
 ronda porque `SUPABASE_URL`/`SUPABASE_KEY` en `.env` son credenciales de la API
 REST — aplicar DDL (`create table`, `create function`, `alter table`) requiere
 una conexión directa a Postgres (Settings → Database → Connection string) o
@@ -78,12 +79,10 @@ pegar el SQL a mano en el SQL Editor de Supabase. Pasos:
 ```bash
 # Opción A — psql directo (requiere la contraseña de la BD, no el anon/service key)
 psql "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres" \
-  -f backend/db/migrations/0001_knowledge_stats.sql \
   -f backend/db/migrations/0002_knowledge_edges_reinforcement.sql \
   -f backend/db/migrations/0003_reforzar_relacion_rpc.sql \
-  -f backend/db/migrations/0004_disenos_racks_langsmith_run_id.sql
-
-# Opción B — SQL Editor de Supabase: pegar cada archivo, en orden, y ejecutar.
+  -f backend/db/migrations/0004_disenos_racks_langsmith_run_id.sql \
+  -f backend/db/migrations/0006_indices_sugeridos.sql
 ```
 
 También sigue pendiente el baseline (`0000_baseline.sql`, `pg_dump --schema-only`)
@@ -124,5 +123,5 @@ python tests/test_learning.py     # 6 tests (incluye evitar_con/compatible_con)
 ```
 El flujo end-to-end (guardar corrección real → métricas → grafo → promoción →
 contexto inyectado a Claude) requiere credenciales de Supabase/Anthropic/Voyage
-(ya en `.env`) y aplicar las migraciones `0001`–`0004` (ver sección de infra
+(ya en `.env`) y aplicar las migraciones `0002`, `0003`, `0004`, `0006` (ver sección de infra
 externa arriba).

@@ -16,11 +16,12 @@ Antes del Sprint 2 el esquema vivía **solo** en el proyecto remoto de Supabase
 | Archivo | Contenido | ¿Aplicada en prod? |
 |---|---|---|
 | `0000_baseline.sql` | Esquema actual (pendiente de volcar desde Supabase) | — |
-| `0001_knowledge_stats.sql` | Tabla `knowledge_stats` + RPC `increment_stat` (Sprint 2, Fase 2) | ⬜ pendiente |
-| `0002_knowledge_edges_reinforcement.sql` | Índice único para reforzar relaciones (Sprint 2, Fase 3) | ⬜ pendiente |
-| `0003_reforzar_relacion_rpc.sql` | RPC `reforzar_relacion` — upsert atómico de aristas (Sprint 2, Fase 3, cierre) | ⬜ pendiente |
+| `0001_knowledge_stats.sql` | Tabla `knowledge_stats` + RPC `increment_stat` (Sprint 2, Fase 2) | ✅ aplicada (verificado en vivo — corrige el estado anterior, que la daba por pendiente) |
+| `0002_knowledge_edges_reinforcement.sql` | Índice único para reforzar relaciones (Sprint 2, Fase 3) | 🔦 no verificable sin mutar datos — probablemente pendiente, ya que `0003` (que depende de este índice) confirma no estar aplicada |
+| `0003_reforzar_relacion_rpc.sql` | RPC `reforzar_relacion` — upsert atómico de aristas (Sprint 2, Fase 3, cierre) | ⬜ pendiente (confirmado: RPC no existe, error PGRST202 al invocarlo) |
 | `0004_disenos_racks_langsmith_run_id.sql` | Columna `langsmith_run_id` en `disenos_racks` (Sprint 2, Fase 5) | ⬜ pendiente |
 | `0005_rag_match_knowledge.sql` | RPC `match_knowledge` + constraint única de `knowledge_sources` (sistema RAG) | ✅ aplicada (verificado en vivo) |
+| `0006_indices_sugeridos.sql` | Índices sobre `correcciones_armado` y `knowledge_edges` (revisión senior de BD) | ⬜ pendiente |
 
 ## Pendiente: baseline (0000)
 
