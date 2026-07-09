@@ -13,9 +13,9 @@ class AlimentarIaCubit extends Cubit<AlimentarIaState> {
   AlimentarIaCubit(this._listar, this._crearCarpeta, this._subirArchivo) : super(AlimentarIaInitial());
 
   Future<void> abrirExplorador({StorageBucket bucket = StorageBucket.cotizaciones}) =>
-      _cargar(bucket: bucket, pathSegments: const []);
+      _cargar(bucket: bucket, pathSegments: bucket.rootPath);
 
-  Future<void> cambiarBucket(StorageBucket bucket) => _cargar(bucket: bucket, pathSegments: const []);
+  Future<void> cambiarBucket(StorageBucket bucket) => _cargar(bucket: bucket, pathSegments: bucket.rootPath);
 
   Future<void> abrirCarpeta(String nombre) {
     final actual = state is AlimentarIaLoaded ? state as AlimentarIaLoaded : null;
