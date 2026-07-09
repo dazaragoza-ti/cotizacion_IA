@@ -205,23 +205,5 @@ class KnowledgeRepository:
 
         )
 
-    ####################################################
-    # PROYECTOS
-    ####################################################
-
-    def proyectos(self):
-
-        return (
-
-            self.db
-
-            .table("proyectos_pm")
-
-            .select("*")
-
-            .execute()
-
-        )
-
 
 repository = KnowledgeRepository()

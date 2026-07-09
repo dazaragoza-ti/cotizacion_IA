@@ -6,6 +6,10 @@ de Telegram. La lógica de negocio vive en services/, no aquí.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .core.logger import configurar_logging
+
+configurar_logging()
+
 from .config import CORS_ORIGINS
 from .cors import _LocalhostCORSMiddleware
 from .telegram.bot import lifespan
