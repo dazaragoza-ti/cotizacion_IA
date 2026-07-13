@@ -24,10 +24,14 @@ class RagCubit extends Cubit<RagState> {
     final actual = state;
     final query = actual is RagResultados ? actual.query : "";
     final resultados = actual is RagResultados ? actual.resultados : const <RagResultadoEntity>[];
-    emit(RagResultados(query: query, resultados: resultados, sincronizando: true, mensaje: "Sincronizando catálogo y correcciones..."));
+    emit(RagResultados(query: query, resultados: resultados, sincronizando: true, mensaje: "Iniciando sincronización..."));
     try {
+      // El backend responde de inmediato y sigue sincronizando en segundo
+      // plano (puede tardar más de un minuto por el rate-limit de Voyage) --
+      // no hay que esperar a que termine para saber si arrancó bien.
       await _sincronizar();
-      emit(RagResultados(query: query, resultados: resultados, mensaje: "Sincronización completada."));
+      emit(RagResultados(query: query, resultados: resultados,
+          mensaje: "Sincronización iniciada en segundo plano — puede tardar uno o dos minutos en verse reflejada en la búsqueda."));
     } catch (e) {
       emit(RagResultados(query: query, resultados: resultados, mensaje: "Error al sincronizar: $e"));
     }

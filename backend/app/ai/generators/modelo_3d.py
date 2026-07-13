@@ -63,6 +63,14 @@ PLACA = 100       # mm — placa base
 PLACA_H = 10
 DIAG_TH = 18      # mm — solera 1/8"x1" diagonal (~25mm visual)
 
+# Frentes de larguero que requieren 2 cargadores por par en vez de 1 -- misma
+# tabla exacta que validator_engine.FRENTES_CON_2_CARGADORES y
+# adaptador_visor._FRENTES_CON_2_CARGADORES (antes este archivo usaba un
+# umbral aproximado ">= 2700", que coincidia en la practica porque los
+# frentes de catalogo saltan de 2504 a 2804 sin valores intermedios, pero
+# quedaba inconsistente con la regla real documentada/validada).
+FRENTES_CON_2_CARGADORES = (2804, 3104)
+
 
 def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm):
     """Cabecera PM: 2 postes verticales + X-bracing en zigzag + placas base.
@@ -163,7 +171,7 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
         meshes.extend(construir_larguero(larguero_x, y0 + fondo - espesor_larg, nivel_z,
                                           larguero_w, peralte, espesor_larg))
         # Cargador(es): 1 si frente <=242, 2 si >=272 (según catálogo PM)
-        n_cargs = 2 if frente >= 2700 else 1
+        n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
         carg_z = nivel_z + peralte - 30
         carg_y = y0 + espesor_larg
         carg_fondo_util = fondo - 2 * espesor_larg
@@ -209,7 +217,7 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
             meshes.extend(construir_larguero(bx, y0, nivel_z, bw, peralte))
             meshes.extend(construir_larguero(bx, y0 + fondo - espesor_larg, nivel_z,
                                               bw, peralte))
-            n_cargs = 2 if frente >= 2700 else 1
+            n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
             carg_z = nivel_z + peralte - 30
             carg_y = y0 + espesor_larg
             carg_fondo_util = fondo - 2 * espesor_larg
