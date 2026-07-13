@@ -5,6 +5,7 @@ import "../../../../core/constants/app_constants.dart";
 abstract class RagRemoteDatasource {
   Future<List<RagResultadoModel>> search({required String query, int topK = 5, String? tipo});
   Future<void> sync();
+  Future<bool> syncEnProgreso();
 }
 
 class RagRemoteDatasourceImpl implements RagRemoteDatasource {
@@ -25,5 +26,11 @@ class RagRemoteDatasourceImpl implements RagRemoteDatasource {
   @override
   Future<void> sync() async {
     await _api.dio.post(ApiEndpoints.ragSync);
+  }
+
+  @override
+  Future<bool> syncEnProgreso() async {
+    final res = await _api.dio.get(ApiEndpoints.ragSyncStatus);
+    return res.data["en_progreso"] as bool? ?? false;
   }
 }

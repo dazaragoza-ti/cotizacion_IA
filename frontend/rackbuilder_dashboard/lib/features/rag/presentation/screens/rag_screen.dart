@@ -46,6 +46,16 @@ class _RagScreenState extends State<RagScreen> {
                   : const Icon(Icons.sync, size: 16),
               label: Text(sincronizando ? "Sincronizando..." : "Sincronizar ahora"),
             )),
+            if (sincronizando) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: const LinearProgressIndicator(minHeight: 6, backgroundColor: AppColors.slateLight),
+              ),
+              const SizedBox(height: 6),
+              const Text("Puede tardar uno o dos minutos — corre en segundo plano, no hace falta quedarse en esta pantalla.",
+                  style: TextStyle(fontSize: 11, color: AppColors.textHint)),
+            ],
             if (mensaje != null) Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(mensaje, style: const TextStyle(fontSize: 12, color: AppColors.textSecond)),

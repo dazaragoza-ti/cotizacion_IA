@@ -44,6 +44,20 @@ def sincronizar_rag(background_tasks: BackgroundTasks):
     return {"status": "started", "mensaje": "Sincronizacion iniciada en segundo plano."}
 
 
+@router.get("/sync/status")
+def estado_sincronizacion():
+    """Para que el frontend sepa si la sincronizacion en segundo plano ya termino
+    (puede tardar mas de un minuto) y muestre una animacion de carga real mientras
+    tanto, en vez de asumir que termino apenas responde el POST."""
+    return {
+        "en_progreso": knowledge_sync.en_progreso,
+        "ultima_ejecucion": (
+            knowledge_sync.ultima_ejecucion.isoformat() if knowledge_sync.ultima_ejecucion else None
+        ),
+        "ultimo_error": knowledge_sync.ultimo_error,
+    }
+
+
 @router.get("/search")
 def buscar_rag(q: str, top_k: int = 5, tipo: str | None = None):
     """Prueba manual: busca los chunks más parecidos semánticamente a `q`."""
