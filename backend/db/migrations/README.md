@@ -22,6 +22,8 @@ Antes del Sprint 2 el esquema vivía **solo** en el proyecto remoto de Supabase
 | `0004_disenos_racks_langsmith_run_id.sql` | Columna `langsmith_run_id` en `disenos_racks` (Sprint 2, Fase 5) | ✅ aplicada (verificado en vivo) |
 | `0005_rag_match_knowledge.sql` | RPC `match_knowledge` + constraint única de `knowledge_sources` (sistema RAG) | ✅ aplicada (verificado en vivo) |
 | `0006_indices_sugeridos.sql` | Índices sobre `correcciones_armado` y `knowledge_edges` (revisión senior de BD) | ⬜ pendiente |
+| `0007_sistema_errores.sql` | Tabla `sistema_errores` (fallos del backend para Arquitectura del Sistema) | ✅ aplicada (verificado en vivo) |
+| `0008_realtime_arquitectura.sql` | Agrega `sistema_errores`, `knowledge_edges`, `knowledge_chunks`, `reglas_armado`, `disenos_racks` a la publicación `supabase_realtime` (mapa de Arquitectura en vivo vía websocket) | ⬜ pendiente |
 
 ## Pendiente: baseline (0000)
 

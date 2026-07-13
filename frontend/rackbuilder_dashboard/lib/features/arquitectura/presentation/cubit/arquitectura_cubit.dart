@@ -6,6 +6,9 @@ import "../../data/datasources/arquitectura_remote_datasource.dart";
 class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   final ArquitecturaRemoteDatasource _ds;
   Timer? _timer;
+  Timer? _debounce;
+  StreamSubscription<void>? _cambiosSub;
+  StreamSubscription<bool>? _conexionSub;
   ArquitecturaCubit(this._ds) : super(const ArquitecturaState());
 
   Future<void> cargarErrores() async {
@@ -29,7 +32,11 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     }
   }
 
-  /// Refresca al abrir la pantalla y cada 30s mientras siga montada.
+  /// Refresca al abrir la pantalla, cada 30s como respaldo, y al instante
+  /// cuando Supabase Realtime avisa un cambio en las tablas vigiladas
+  /// (sistema_errores, knowledge_edges, knowledge_chunks, reglas_armado,
+  /// disenos_racks). El polling de 30s se conserva como red de seguridad
+  /// por si Realtime no esta disponible (falta publicar la tabla, red, etc).
   void iniciarPolling() {
     cargarErrores();
     cargarMetricas();
@@ -37,6 +44,23 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       cargarErrores();
       cargarMetricas();
+    });
+
+    _cambiosSub?.cancel();
+    _cambiosSub = _ds.watchCambios().listen((_) {
+      // Debounce: una sincronizacion de RAG puede insertar decenas de
+      // knowledge_chunks en rafaga -- se espera a que se calme antes de
+      // re-consultar, para no martillar el backend.
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 800), () {
+        cargarErrores();
+        cargarMetricas();
+      });
+    });
+
+    _conexionSub?.cancel();
+    _conexionSub = _ds.watchConexion().listen((conectado) {
+      emit(state.copyWith(enVivoConectado: conectado));
     });
   }
 
@@ -50,6 +74,9 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   @override
   Future<void> close() {
     _timer?.cancel();
+    _debounce?.cancel();
+    _cambiosSub?.cancel();
+    _conexionSub?.cancel();
     return super.close();
   }
 }

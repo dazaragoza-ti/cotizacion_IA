@@ -8,13 +8,25 @@ class ArquitecturaState {
   final List<ErrorSistema> errores;
   final bool cargando;
   final Map<String, dynamic> metricas;
+  final bool enVivoConectado;
 
-  const ArquitecturaState({this.errores = const [], this.cargando = false, this.metricas = const {}});
+  const ArquitecturaState({
+    this.errores = const [],
+    this.cargando = false,
+    this.metricas = const {},
+    this.enVivoConectado = false,
+  });
 
-  ArquitecturaState copyWith({List<ErrorSistema>? errores, bool? cargando, Map<String, dynamic>? metricas}) => ArquitecturaState(
+  ArquitecturaState copyWith({
+    List<ErrorSistema>? errores,
+    bool? cargando,
+    Map<String, dynamic>? metricas,
+    bool? enVivoConectado,
+  }) => ArquitecturaState(
     errores: errores ?? this.errores,
     cargando: cargando ?? this.cargando,
     metricas: metricas ?? this.metricas,
+    enVivoConectado: enVivoConectado ?? this.enVivoConectado,
   );
 
   Set<String> get nodosConError => errores.map((e) => e.componente).toSet();

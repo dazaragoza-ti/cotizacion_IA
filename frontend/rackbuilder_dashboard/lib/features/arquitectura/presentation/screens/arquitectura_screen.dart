@@ -45,7 +45,11 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
   @override
   Widget build(BuildContext context) => BlocBuilder<ArquitecturaCubit, ArquitecturaState>(
     builder: (context, state) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+      Row(children: [
+        const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+        const SizedBox(width: 10),
+        _indicadorEnVivo(state.enVivoConectado),
+      ]),
       const SizedBox(height: 4),
       const Text("Cómo fluye una solicitud a través de los motores reales del proyecto. Toca un nodo para ver su detalle.",
           style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
@@ -266,6 +270,25 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
       ),
     );
   }
+
+  Widget _indicadorEnVivo(bool conectado) => Tooltip(
+    message: conectado
+        ? "Supabase Realtime conectado: el mapa se actualiza al instante cuando cambian los datos."
+        : "Realtime no conectado -- se refresca por polling cada 30s.",
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 8, height: 8,
+        decoration: BoxDecoration(
+          color: conectado ? AppColors.emerald : AppColors.textHint,
+          shape: BoxShape.circle,
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(conectado ? "En vivo" : "Polling",
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+              color: conectado ? AppColors.emerald : AppColors.textHint)),
+    ]),
+  );
 
   Widget _leyenda(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
     Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
