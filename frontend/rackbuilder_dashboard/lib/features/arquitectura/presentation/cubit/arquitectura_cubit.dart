@@ -19,11 +19,25 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     }
   }
 
+  Future<void> cargarMetricas() async {
+    try {
+      final metricas = await _ds.getMetricas();
+      emit(state.copyWith(metricas: metricas));
+    } catch (_) {
+      // Silencioso, mismo criterio que cargarErrores: el mapa estatico no
+      // debe romperse si /sistema/metricas falla.
+    }
+  }
+
   /// Refresca al abrir la pantalla y cada 30s mientras siga montada.
   void iniciarPolling() {
     cargarErrores();
+    cargarMetricas();
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => cargarErrores());
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      cargarErrores();
+      cargarMetricas();
+    });
   }
 
   Future<void> resolverError(String id) async {

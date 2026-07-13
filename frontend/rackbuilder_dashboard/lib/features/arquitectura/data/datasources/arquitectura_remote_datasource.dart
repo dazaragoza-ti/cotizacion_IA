@@ -4,10 +4,12 @@ import "../../../../core/network/api_client.dart";
 abstract class ArquitecturaRemoteDatasource {
   Future<List<ErrorSistema>> getErroresActivos();
   Future<void> resolverError(String id);
+  Future<Map<String, dynamic>> getMetricas();
 }
 
 class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
   final ApiClient _api;
+  
   const ArquitecturaRemoteDatasourceImpl(this._api);
 
   @override
@@ -23,5 +25,11 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
   @override
   Future<void> resolverError(String id) async {
     await _api.dio.post("/sistema/errores/$id/resolver");
+  }
+
+  @override
+  Future<Map<String, dynamic>> getMetricas() async {
+    final res = await _api.dio.get("/sistema/metricas");
+    return (res.data["metricas"] as Map<String, dynamic>?) ?? {};
   }
 }

@@ -92,7 +92,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
           );
         }),
       ),
-      if (_nodo != null) _panelDetalleNodo(_nodo!)
+      if (_nodo != null) _panelDetalleNodo(_nodo!, state.metricaDe(_nodo!.id))
       else const AppEmptyState(icon: Icons.touch_app_outlined, message: "Toca cualquier círculo del mapa para ver qué hace ese componente."),
       const SizedBox(height: 16),
       _panelFlujo(
@@ -138,7 +138,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     ]),
   );
 
-  Widget _panelDetalleNodo(NodoArquitectura nodo) => PanelCard(
+  Widget _panelDetalleNodo(NodoArquitectura nodo, Map<String, dynamic> metrica) => PanelCard(
     title: nodo.label.replaceAll("\n", " "),
     subtitle: switch (nodo.estado) {
       EstadoNodo.implementado => "Implementado",
@@ -163,8 +163,47 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         const SizedBox(height: 6),
         _filaEntradaSalida("Entrega", nodo.salidas),
       ],
+      if (_textoEnVivo(nodo.id, metrica) case final texto?) ...[
+        const SizedBox(height: 12),
+        const Divider(height: 1),
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.bolt, size: 14, color: AppColors.emerald),
+          const SizedBox(width: 6),
+          Expanded(child: Text(texto, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w600))),
+        ]),
+      ],
     ]),
   );
+
+  String? _textoEnVivo(String nodoId, Map<String, dynamic> m) {
+    if (m.isEmpty) return null;
+    switch (nodoId) {
+      case "fastapi":
+        return "En vivo: backend ${m["estado"]?.toString() ?? "desconocido"}.";
+      case "supabase":
+        return "En vivo: ${m["estado"]?.toString() ?? "desconocido"}.";
+      case "langsmith":
+        return "En vivo: ${m["configurado"] == true ? "configurado, trazando" : "no configurado (no-op)"}.";
+      case "rag":
+        final chunks = m["chunks_indexados"];
+        return chunks == null ? null : "En vivo: $chunks chunks indexados en knowledge_chunks.";
+      case "graph":
+        final relaciones = m["relaciones_activas"];
+        return relaciones == null ? null : "En vivo: $relaciones relaciones activas en el grafo.";
+      case "claude":
+        final disenos = m["disenos_generados"];
+        if (disenos == null) return null;
+        final tokens = m["tokens_totales"] ?? 0;
+        final costo = m["costo_usd"] ?? 0;
+        return "En vivo: $disenos diseños generados, $tokens tokens, costo USD $costo.";
+      case "promotion":
+        final reglas = m["reglas_activas"];
+        return reglas == null ? null : "En vivo: $reglas reglas activas en reglas_armado.";
+      default:
+        return null;
+    }
+  }
 
   Widget _filaEntradaSalida(String etiqueta, String texto) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     SizedBox(width: 60, child: Text(etiqueta, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecond))),
