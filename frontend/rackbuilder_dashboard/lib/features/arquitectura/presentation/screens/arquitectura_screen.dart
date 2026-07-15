@@ -58,6 +58,10 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         _panelFallos(context, state.errores),
         const SizedBox(height: 12),
       ],
+      if (state.pasosEnCurso.isNotEmpty) ...[
+        _panelEnCurso(state.pasosEnCurso),
+        const SizedBox(height: 12),
+      ],
       Wrap(spacing: 12, runSpacing: 6, children: [
         _leyenda(AppColors.emerald, "Implementado"),
         _leyenda(AppColors.amber, "Parcial / no-op sin configurar"),
@@ -65,6 +69,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         _leyenda(AppColors.red, "Fallo reciente (ver detalle abajo)"),
         _leyendaLinea(AppColors.indigo, "Flujo de datos"),
         _leyendaLinea(AppColors.purple, "Observabilidad (LangSmith), punteado"),
+        _leyendaAnillo(AppColors.cyan, "Solicitud real en curso ahora mismo"),
       ]),
       const SizedBox(height: 16),
       PanelCard(
@@ -89,6 +94,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
                     nodoSeleccionado: _seleccionado,
                     posicionesAbs: posiciones,
                     nodosConError: state.nodosConError,
+                    nodosActivos: state.nodosActivos,
                   ),
                 ),
               ),
@@ -96,7 +102,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
           );
         }),
       ),
-      if (_nodo != null) _panelDetalleNodo(_nodo!, state.metricaDe(_nodo!.id))
+      if (_nodo != null) _panelDetalleNodo(_nodo!, state.metricaDe(_nodo!.id), state.pasosEnCurso[_nodo!.id])
       else const AppEmptyState(icon: Icons.touch_app_outlined, message: "Toca cualquier círculo del mapa para ver qué hace ese componente."),
       const SizedBox(height: 16),
       _panelFlujo(
@@ -142,7 +148,30 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     ]),
   );
 
-  Widget _panelDetalleNodo(NodoArquitectura nodo, Map<String, dynamic> metrica) => PanelCard(
+  Widget _panelEnCurso(Map<String, String> pasosEnCurso) => PanelCard(
+    title: "Ahora mismo",
+    subtitle: "${pasosEnCurso.length} nodo(s) procesando una solicitud real",
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (final entry in pasosEnCurso.entries) Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(
+            width: 12, height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan),
+          ),
+          const SizedBox(width: 8),
+          AppBadge(
+            text: ArquitecturaData.nodos.where((n) => n.id == entry.key).firstOrNull?.label.replaceAll("\n", " ") ?? entry.key,
+            bg: AppColors.indigoLight, fg: AppColors.indigo,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(entry.value, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary))),
+        ]),
+      ),
+    ]),
+  );
+
+  Widget _panelDetalleNodo(NodoArquitectura nodo, Map<String, dynamic> metrica, String? pasoEnCurso) => PanelCard(
     title: nodo.label.replaceAll("\n", " "),
     subtitle: switch (nodo.estado) {
       EstadoNodo.implementado => "Implementado",
@@ -151,6 +180,18 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     },
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(nodo.descripcion, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4)),
+      if (pasoEnCurso != null) ...[
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(
+            width: 12, height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text("Ahora mismo: $pasoEnCurso",
+              style: const TextStyle(fontSize: 12, color: AppColors.indigo, fontWeight: FontWeight.w700))),
+        ]),
+      ],
       if (nodo.capituloManual != null) ...[
         const SizedBox(height: 10),
         Row(children: [
@@ -307,6 +348,15 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
 
   Widget _leyendaLinea(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
     Container(width: 14, height: 2, color: color),
+    const SizedBox(width: 6),
+    Text(texto, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
+  ]);
+
+  Widget _leyendaAnillo(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(
+      width: 12, height: 12,
+      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color, width: 1.6)),
+    ),
     const SizedBox(width: 6),
     Text(texto, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
   ]);

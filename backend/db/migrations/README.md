@@ -24,6 +24,7 @@ Antes del Sprint 2 el esquema vivía **solo** en el proyecto remoto de Supabase
 | `0006_indices_sugeridos.sql` | Índices sobre `correcciones_armado` y `knowledge_edges` (revisión senior de BD) | ⬜ pendiente |
 | `0007_sistema_errores.sql` | Tabla `sistema_errores` (fallos del backend para Arquitectura del Sistema) | ✅ aplicada (verificado en vivo) |
 | `0008_realtime_arquitectura.sql` | Agrega `sistema_errores`, `knowledge_edges`, `knowledge_chunks`, `reglas_armado`, `disenos_racks` a la publicación `supabase_realtime` (mapa de Arquitectura en vivo vía websocket) | ⬜ pendiente |
+| `0009_eventos_pipeline.sql` | Tabla `eventos_pipeline` (traza paso a paso de una solicitud individual) + publicación Realtime | ⬜ pendiente |
 
 ## Pendiente: baseline (0000)
 

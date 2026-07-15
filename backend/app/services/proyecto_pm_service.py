@@ -36,6 +36,7 @@ from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
 from ..clients import supabase
 from ..config import URL_FRONTEND
+from ..core import pipeline_tracer
 
 log = logging.getLogger("proyecto_pm_service")
 
@@ -65,15 +66,30 @@ async def generar_proyecto_pm(
 ) -> ResultadoProyectoPM:
     n_imgs, n_pdfs = len(imagenes), len(pdfs)
 
+    # Traza en vivo de ESTA solicitud puntual (distinta de session_id, que
+    # persiste entre varias solicitudes de la misma conversacion) -- ver
+    # pipeline_tracer y el modulo Arquitectura del Sistema del frontend.
+    solicitud_id = str(uuid.uuid4())
+    pipeline_tracer.emitir(solicitud_id, "fastapi", "Solicitud recibida, orquestando el flujo", "completado")
+
     proyecto_anterior_row = historial.ultimo_proyecto_de_sesion(session_id)
     proyecto_anterior = proyecto_anterior_row.get("proyecto_json") if proyecto_anterior_row else None
 
+    pipeline_tracer.emitir(solicitud_id, "rag", "Buscando correcciones similares (Voyage AI)", "en_progreso")
     try:
         correcciones_similares = vector_store.search(descripcion, top_k=5, tipo="correccion")
+        pipeline_tracer.emitir(
+            solicitud_id, "rag",
+            f"{len(correcciones_similares)} correccion(es) similar(es) encontrada(s)", "completado",
+        )
     except Exception as e:
         log.warning("Busqueda RAG de correcciones fallo: %s", e)
         correcciones_similares = []
+        pipeline_tracer.emitir(solicitud_id, "rag", "Busqueda RAG fallo, se continua sin evidencia", "error")
 
+    if proyecto_anterior:
+        pipeline_tracer.emitir(solicitud_id, "graph", "Consultando relaciones aprendidas del proyecto anterior", "en_progreso")
+    pipeline_tracer.emitir(solicitud_id, "context_builder", "Armando el prompt final para Claude", "en_progreso")
     catalogo_pm_para_contexto = consultar_catalogo_pm() if proyecto_anterior else None
     descripcion_para_claude = construir_descripcion_extendida(
         descripcion=descripcion,
@@ -81,6 +97,9 @@ async def generar_proyecto_pm(
         correcciones_similares=correcciones_similares,
         catalogo_pm=catalogo_pm_para_contexto,
     )
+    if proyecto_anterior:
+        pipeline_tracer.emitir(solicitud_id, "graph", "Relaciones del grafo inyectadas al prompt", "completado")
+    pipeline_tracer.emitir(solicitud_id, "context_builder", "Prompt listo para Claude", "completado")
 
     texto = html = None
     proyecto = None
@@ -91,6 +110,7 @@ async def generar_proyecto_pm(
     langsmith_run_id = uuid.uuid4()
 
     for intento in range(1, MAX_INTENTOS_DISENO + 1):
+        pipeline_tracer.emitir(solicitud_id, "claude", f"Claude esta razonando el diseno (intento {intento})", "en_progreso")
         try:
             texto, input_tokens, output_tokens = await claude_client.generar(
                 descripcion_para_claude, imagenes, pdfs,
@@ -105,6 +125,7 @@ async def generar_proyecto_pm(
             )
         except Exception as e:
             log.exception("claude_client.generar fallo")
+            pipeline_tracer.emitir(solicitud_id, "claude", f"Claude fallo: {e}", "error")
             historial.registrar(
                 tg_user_id=tg_user_id, tg_username=tg_username, tg_full_name=tg_full_name,
                 descripcion=descripcion or "", respuesta_texto="", proyecto_json=None,
@@ -113,6 +134,7 @@ async def generar_proyecto_pm(
                 session_id=session_id,
             )
             return ResultadoProyectoPM(error=str(e))
+        pipeline_tracer.emitir(solicitud_id, "claude", "Claude genero el diseno", "completado")
 
         html, texto = extraer_html(texto)
         proyecto, texto = extraer_json(texto)
@@ -121,6 +143,7 @@ async def generar_proyecto_pm(
         avisos = []
 
         if proyecto:
+            pipeline_tracer.emitir(solicitud_id, "engineering", "Validando reglas de ingenieria (determinista)", "en_progreso")
             try:
                 validacion = validator_engine.validar(proyecto)
                 log.info("Intento %d - Validacion: %s", intento, validacion.resumen())
@@ -131,6 +154,11 @@ async def generar_proyecto_pm(
                 errores_bloqueantes.extend(verificar_compatibilidad_proyecto(proyecto, catalogo_pm_actual))
             except Exception as e:
                 log.exception("validador fallo: %s", e)
+            pipeline_tracer.emitir(
+                solicitud_id, "engineering",
+                "Diseno aprobado" if not errores_bloqueantes else f"{len(errores_bloqueantes)} error(es), regresa a Claude",
+                "completado" if not errores_bloqueantes else "error",
+            )
 
         if not errores_bloqueantes or intento >= MAX_INTENTOS_DISENO:
             break
@@ -244,6 +272,7 @@ async def generar_proyecto_pm(
         except Exception as e:
             log.warning("No se pudo verificar precios contra catalogo_pm, se usan los del JSON: %s", e)
 
+        pipeline_tracer.emitir(solicitud_id, "generadores", "Generando PDF, XLSX y modelo 3D", "en_progreso")
         work = Path(tempfile.mkdtemp(prefix="pm_rackbot_"))
         try:
             salidas = await asyncio.to_thread(pipeline.correr_pipeline, proyecto, work)
@@ -265,10 +294,12 @@ async def generar_proyecto_pm(
             if not moved and not resultado.link_visor_3d:
                 extra = "No pude generar planos/renders (faltan dependencias en el servidor?)."
                 resultado.validacion_texto = (resultado.validacion_texto or []) + [extra]
+            pipeline_tracer.emitir(solicitud_id, "generadores", f"{len(moved)} archivo(s) generado(s)", "completado")
         except Exception as e:
             log.exception("pipeline fallo")
             extra = f"Error generando planos/renders: {e}"
             resultado.validacion_texto = (resultado.validacion_texto or []) + [extra]
+            pipeline_tracer.emitir(solicitud_id, "generadores", f"Error generando entregables: {e}", "error")
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
@@ -280,6 +311,7 @@ async def generar_proyecto_pm(
         n_imagenes=n_imgs, n_pdfs=n_pdfs,
         session_id=session_id,
     )
+    pipeline_tracer.emitir(solicitud_id, "usuario", "Respuesta entregada al cliente", "completado")
     return resultado
 
 

@@ -2,6 +2,7 @@ import "dart:async";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "arquitectura_state.dart";
 import "../../data/datasources/arquitectura_remote_datasource.dart";
+import "../../domain/evento_pipeline.dart";
 
 class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   final ArquitecturaRemoteDatasource _ds;
@@ -9,6 +10,8 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   Timer? _debounce;
   StreamSubscription<void>? _cambiosSub;
   StreamSubscription<bool>? _conexionSub;
+  StreamSubscription<EventoPipeline>? _eventosSub;
+  final Map<String, Timer> _vencimientos = {};
   ArquitecturaCubit(this._ds) : super(const ArquitecturaState());
 
   Future<void> cargarErrores() async {
@@ -37,6 +40,8 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   /// (sistema_errores, knowledge_edges, knowledge_chunks, reglas_armado,
   /// disenos_racks). El polling de 30s se conserva como red de seguridad
   /// por si Realtime no esta disponible (falta publicar la tabla, red, etc).
+  /// Ademas escucha eventos_pipeline, que trazan UNA solicitud puntual paso
+  /// a paso -- eso anima el mapa mismo, no solo los contadores.
   void iniciarPolling() {
     cargarErrores();
     cargarMetricas();
@@ -62,6 +67,27 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     _conexionSub = _ds.watchConexion().listen((conectado) {
       emit(state.copyWith(enVivoConectado: conectado));
     });
+
+    _eventosSub?.cancel();
+    _eventosSub = _ds.watchEventosPipeline().listen(_onEventoPipeline);
+  }
+
+  void _onEventoPipeline(EventoPipeline evento) {
+    final nodoId = evento.componente;
+    final actuales = Map<String, String>.from(state.pasosEnCurso)..[nodoId] = evento.paso;
+    emit(state.copyWith(pasosEnCurso: actuales));
+
+    // "en_progreso" se apaga solo si no llega su cierre a tiempo (la
+    // solicitud pudo perderse a medio camino); "completado"/"error" se
+    // apagan casi de inmediato, con un respiro para que se alcance a ver.
+    final espera = evento.estado == "en_progreso"
+        ? const Duration(seconds: 20)
+        : const Duration(milliseconds: 700);
+    _vencimientos[nodoId]?.cancel();
+    _vencimientos[nodoId] = Timer(espera, () {
+      final limpio = Map<String, String>.from(state.pasosEnCurso)..remove(nodoId);
+      emit(state.copyWith(pasosEnCurso: limpio));
+    });
   }
 
   Future<void> resolverError(String id) async {
@@ -77,6 +103,10 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     _debounce?.cancel();
     _cambiosSub?.cancel();
     _conexionSub?.cancel();
+    _eventosSub?.cancel();
+    for (final t in _vencimientos.values) {
+      t.cancel();
+    }
     return super.close();
   }
 }

@@ -1,6 +1,7 @@
 import "dart:async";
 import "package:supabase_flutter/supabase_flutter.dart";
 import "../../domain/error_sistema.dart";
+import "../../domain/evento_pipeline.dart";
 import "../../../../core/network/api_client.dart";
 import "../../../../core/constants/app_constants.dart";
 
@@ -17,6 +18,11 @@ abstract class ArquitecturaRemoteDatasource {
   /// fallo (config no disponible, tabla sin publicar, etc.) -- en ese caso
   /// el modulo sigue funcionando con el polling de respaldo.
   Stream<bool> watchConexion();
+
+  /// Cada paso de UNA solicitud puntual mientras avanza por el pipeline real
+  /// (tabla eventos_pipeline) -- permite animar en el mapa por que nodo va
+  /// pasando esa peticion en este instante, no solo contadores agregados.
+  Stream<EventoPipeline> watchEventosPipeline();
 }
 
 class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
@@ -36,6 +42,7 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
   RealtimeChannel? _canal;
   StreamController<void>? _cambiosController;
   StreamController<bool>? _conexionController;
+  StreamController<EventoPipeline>? _eventosController;
 
   @override
   Future<List<ErrorSistema>> getErroresActivos() async {
@@ -70,14 +77,22 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
     return _conexionController!.stream;
   }
 
+  @override
+  Stream<EventoPipeline> watchEventosPipeline() {
+    _asegurarConexion();
+    return _eventosController!.stream;
+  }
+
   void _asegurarConexion() {
     if (_cambiosController != null) return;
 
     final cambios = StreamController<void>.broadcast(onCancel: _cerrarConexion);
     final conexion = StreamController<bool>.broadcast(onCancel: _cerrarConexion);
+    final eventos = StreamController<EventoPipeline>.broadcast(onCancel: _cerrarConexion);
     _cambiosController = cambios;
     _conexionController = conexion;
-    _conectarRealtime(cambios, conexion);
+    _eventosController = eventos;
+    _conectarRealtime(cambios, conexion, eventos);
   }
 
   void _cerrarConexion() {
@@ -87,9 +102,14 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
     _realtimeClient = null;
     _cambiosController = null;
     _conexionController = null;
+    _eventosController = null;
   }
 
-  Future<void> _conectarRealtime(StreamController<void> cambios, StreamController<bool> conexion) async {
+  Future<void> _conectarRealtime(
+    StreamController<void> cambios,
+    StreamController<bool> conexion,
+    StreamController<EventoPipeline> eventos,
+  ) async {
     try {
       final res = await _api.dio.get(ApiEndpoints.configSupabase);
       final url = res.data["url"] as String?;
@@ -112,6 +132,17 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
           },
         );
       }
+      canal = canal.onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: "public",
+        table: "eventos_pipeline",
+        callback: (payload) {
+          if (eventos.isClosed) return;
+          try {
+            eventos.add(EventoPipeline.fromJson(payload.newRecord));
+          } catch (_) {}
+        },
+      );
       _canal = canal;
       canal.subscribe((status, error) {
         if (conexion.isClosed) return;
