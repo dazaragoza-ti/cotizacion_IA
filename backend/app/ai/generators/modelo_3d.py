@@ -38,6 +38,19 @@ def _box(x, y, z, dx, dy, dz, color):
     return m
 
 
+def _mesh_para_glb(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Este generador construye todo en Z-arriba (Z = altura del rack), pero
+    el formato glTF/GLB exige convencion Y-arriba -- sin esta conversion,
+    cualquier visor glTF estricto (model-viewer del dashboard, Three.js
+    GLTFLoader) muestra el rack "acostado"/rotado 90 grados, con piezas que
+    deberian ser verticales viendose como si flotaran en diagonal. Se aplica
+    SOLO al GLB; OBJ/DAE se quedan en Z-arriba (SketchUp los espera asi)."""
+    convertido = mesh.copy()
+    rotacion = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    convertido.apply_transform(rotacion)
+    return convertido
+
+
 def _bar(p0, p1, thickness, color):
     """Barra cilíndrica de p0 a p1."""
     p0 = np.array(p0, float)
@@ -156,12 +169,16 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
 
     # Cabecera izquierda en x=0
     meshes.extend(construir_cabecera_pm(x0, y0, altura, fondo))
-    # Cabecera derecha en x=frente-POSTE
-    meshes.extend(construir_cabecera_pm(x0 + frente - POSTE, y0, altura, fondo))
+    # Cabecera derecha en x=frente -- frente_mm es la distancia real entre
+    # postes (coincide con la longitud del larguero de catalogo, ej. "LARGUERO
+    # 1894MM"), misma convencion que ya usa adaptador_visor.py para el visor
+    # web. Antes se restaba POSTE aqui, dejando el modulo ~73mm mas angosto
+    # de lo real (y el error se acumulaba por cada bay en una corrida).
+    meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo))
 
     # Largueros + cargadores + entrepaños por nivel (omitir nivel 0 = piso)
-    larguero_x = x0 + POSTE
-    larguero_w = frente - 2 * POSTE
+    larguero_x = x0
+    larguero_w = frente
     espesor_larg = 72
     for nivel_z in niveles[1:]:
         # Larguero frontal
@@ -204,15 +221,17 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
     espesor_larg = 72
     meshes = []
 
-    # Cabeceras: n+1
+    # Cabeceras: n+1, espaciadas exactamente frente_mm (misma convencion que
+    # adaptador_visor.py -- antes se restaba POSTE, acumulando ~73mm de error
+    # por cada bay adicional en corridas largas).
     for i in range(n_modulos + 1):
-        cx = x0 + i * (frente - POSTE)  # comparten poste con el siguiente
+        cx = x0 + i * frente
         meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo))
 
     # Largueros, cargadores y entrepaños por cada bay
     for i in range(n_modulos):
-        bx = x0 + i * (frente - POSTE) + POSTE
-        bw = frente - 2 * POSTE
+        bx = x0 + i * frente
+        bw = frente
         for nivel_z in niveles[1:]:
             meshes.extend(construir_larguero(bx, y0, nivel_z, bw, peralte))
             meshes.extend(construir_larguero(bx, y0 + fondo - espesor_larg, nivel_z,
@@ -353,7 +372,7 @@ def generar(datos_json_path, out_dir):
         print(f"DAE: {dae_path}")
     except Exception as e:
         print(f"DAE skip: {e}")
-    mesh_full.export(str(glb_path))
+    _mesh_para_glb(mesh_full).export(str(glb_path))
 
     # Renders del proyecto completo (planta para overview)
     titulo = datos.get("proyecto", "PROYECTO")

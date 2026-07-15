@@ -1,7 +1,7 @@
 """Genera un render 3D HTML interactivo determinista (estilo profesional).
 
-A partir del GLB que produce modelo_3d.py:
-  - Orienta correctamente (trimesh Z↑ → Three.js Y↑).
+A partir del GLB que produce modelo_3d.py (ya viene en convención Y-arriba,
+ver modelo_3d._mesh_para_glb -- este archivo ya no necesita reorientarlo):
   - Embebido en HTML autónomo con Three.js (CDN, import map).
   - Panel lateral PROFESIONAL: tabla de medidas en metros, info del proyecto.
   - Cotas fuera del bounding box (estilo plano arquitectónico), en metros.
@@ -312,9 +312,9 @@ const loader = new GLTFLoader();
 loader.parse(base64ToArrayBuffer(GLB_B64), '', (gltf) => {
   const model = gltf.scene;
 
-  // ── Orientación: trimesh Z↑ → Three.js Y↑ ──
-  // Esto rota el modelo para que Z (altura) del archivo se convierta en Y (vertical) de la escena.
-  model.rotation.x = -Math.PI / 2;
+  // El GLB ya viene en convención Y-arriba (modelo_3d.py._mesh_para_glb lo
+  // rota al exportar) -- antes se compensaba aquí mismo con esta rotación,
+  // pero hacerlo dos veces (fuente + aquí) dejaría el modelo mal otra vez.
   model.updateMatrixWorld(true);
 
   // ── Colores per-vertex (trimesh no exporta materiales GLB) ──
