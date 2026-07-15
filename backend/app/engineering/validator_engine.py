@@ -7,6 +7,9 @@ Verifica que el JSON del proyecto sea **fabricable**:
   - Cantidad de cargadores correcta según frente (2 para ≥272, 1 para ≤242).
   - Anclaje correcto según altura de cabecera (≥4025 mm → taquete 5/8" × 6").
   - Factor de seguridad ≥ 1.5 sobre la capacidad del marco.
+  - Factor de seguridad ≥ 1.5 sobre la capacidad REAL del larguero elegido
+    (varía 1300-6000 kg/par según su combinación frente+peralte específica,
+    no solo contra el límite genérico del marco).
   - Despiece coherente (cantidades de cabeceras, largueros, cargadores, taquetes).
 
 Devuelve:
@@ -497,6 +500,82 @@ def _v_capacidad(proyecto: dict, r: ResultadoValidacion) -> None:
         )
 
 
+def _mapa_capacidad_largueros(catalogo: dict) -> dict[str, float]:
+    """codigo -> carga_par_kg real de catalogo_pm.json (capacidad de ESE
+    larguero especifico segun su combinacion frente+peralte). Va de 1300 a
+    6000 kg por par segun el SKU -- muy distinto entre si."""
+    mapa: dict[str, float] = {}
+    largueros = catalogo.get("largueros_carga_pesada_gota") or {}
+    for _grupo_peralte, lista in largueros.items():
+        for item in lista or []:
+            codigo = item.get("codigo")
+            carga = item.get("carga_par_kg")
+            if codigo and carga is not None:
+                mapa[str(codigo).upper()] = float(carga)
+    return mapa
+
+
+def _v_capacidad_larguero(proyecto: dict, r: ResultadoValidacion, catalogo: dict) -> None:
+    """_v_capacidad ya revisa la capacidad TOTAL del marco (4500 kg fijo),
+    pero eso no dice nada sobre si el LARGUERO especifico elegido aguanta
+    la carga por nivel: catalogo_pm.json tiene una carga_par_kg real por
+    combinacion frente+peralte que va de 1300 a 6000 kg -- un larguero de
+    frente 3104mm/peralte 100mm (1300 kg/par) puede fallar aunque el marco
+    en conjunto todavia tenga margen. Esta relacion nunca se habia validado.
+    """
+    materiales = proyecto.get("materiales") or []
+    memoria = proyecto.get("memoria") or {}
+    carga_nivel = memoria.get("carga_nivel_kg")
+    if not carga_nivel:
+        return  # sin memoria de carga por nivel, no se puede validar
+
+    try:
+        carga_nivel = float(carga_nivel)
+    except (TypeError, ValueError):
+        return
+
+    mapa_capacidad = _mapa_capacidad_largueros(catalogo)
+    if not mapa_capacidad:
+        return  # catalogo_pm.json sin datos de largueros, no se puede validar
+
+    codigos_vistos: set[str] = set()
+    for m in materiales:
+        cod_full = (m.get("codigo") or "").upper()
+        if not cod_full or not cod_full.startswith(("LRS-", "LRC-")):
+            continue
+        codigos_vistos.add(cod_full)
+
+    for codigo in sorted(codigos_vistos):
+        capacidad = mapa_capacidad.get(codigo) or mapa_capacidad.get(_codigo_base(codigo).upper())
+        if capacidad is None:
+            continue  # SKU sin dato de capacidad en catalogo_pm.json (p.ej. LRC- con escalon, aun no cargado)
+
+        if carga_nivel > capacidad:
+            r.errores.append(
+                f"CARGA EXCEDIDA EN LARGUERO {codigo}: soporta {capacidad:,.0f} kg "
+                f"por par en esta combinación frente/peralte, pero el proyecto "
+                f"pide {carga_nivel:,.0f} kg por nivel. Opciones: (a) usar un "
+                f"peralte mayor para el mismo frente, (b) reducir el frente, "
+                f"(c) reducir la carga por nivel."
+            )
+            continue
+
+        fs = capacidad / carga_nivel if carga_nivel > 0 else float("inf")
+        if fs < FACTOR_SEGURIDAD_MIN:
+            r.advertencias.append(
+                f"Factor de seguridad bajo para el larguero {codigo}: "
+                f"FS = {fs:.2f} (carga_nivel {carga_nivel:,.0f} kg vs "
+                f"capacidad real {capacidad:,.0f} kg/par de este SKU). "
+                f"Mínimo recomendado FS ≥ {FACTOR_SEGURIDAD_MIN} — "
+                f"considerar un peralte mayor."
+            )
+        else:
+            r.info.append(
+                f"Larguero {codigo}: capacidad real {capacidad:,.0f} kg/par "
+                f"OK para carga_nivel {carga_nivel:,.0f} kg (FS = {fs:.2f})."
+            )
+
+
 def _v_defensas_nom006(proyecto: dict, r: ResultadoValidacion) -> None:
     """NOM-006-STPS-2023: si hay montacargas, defensas amarillas son obligatorias.
     Mínimo 2 por corrida (las esquinas del rack expuestas al pasillo).
@@ -628,6 +707,7 @@ def validar(proyecto: dict) -> ResultadoValidacion:
     _v_carga_ligera_obligatorios(proyecto, r)
     _v_anclaje(proyecto, r)
     _v_capacidad(proyecto, r)
+    _v_capacidad_larguero(proyecto, r, catalogo)
     _v_tornillo_seguridad(proyecto, r)
     _v_defensas_nom006(proyecto, r)
     _v_almacenamiento_alimentos(proyecto, r)
