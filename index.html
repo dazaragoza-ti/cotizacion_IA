@@ -306,7 +306,7 @@
         // --- 2. CARGA DE MODELOS PUROS (SIN ENSAMBLE PROCEDURAL DEL FRONTEND) ---
         function renderComponente(comp, tipo) {
             // Colores oscuros de contraste para las geometrías de fallback (mejor legibles en fondo blanco)
-            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : (tipo === 'cargador' ? 0x64748b : 0x4f46e5));
+            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : (tipo === 'cargador' ? 0x64748b : (tipo === 'entrepano' ? 0x16a34a : 0x4f46e5)));
             
             // Normalizar el SKU para mapear con precisión el catálogo
             const normalizedSku = comp.sku ? comp.sku.trim().toUpperCase() : "";
@@ -568,6 +568,17 @@
                 matriz.cargadores.forEach(c => {
                     renderComponente(c, 'cargador');
                     agregarAListaVisual(c.sku, `Cargador (Nivel ${c.nivel})`);
+                });
+            }
+
+            // Recorrer y renderizar entrepanos (panel de carga apoyado sobre
+            // las vigas -- viene en tallas fijas de fondo del catalogo real,
+            // por eso el backend tambien manda "dimensiones" con el ancho
+            // real del bay para escalar el fallback si hiciera falta)
+            if (matriz.entrepanos) {
+                matriz.entrepanos.forEach(e => {
+                    renderComponente(e, 'entrepano');
+                    agregarAListaVisual(e.sku, `Entrepano (Nivel ${e.nivel})`);
                 });
             }
         }
