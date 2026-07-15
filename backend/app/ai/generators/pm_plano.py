@@ -521,8 +521,18 @@ def _hoja_despiece(c, datos):
     c.setFillColor(black)
     y -= 14
 
+    # El subtotal se calcula SIEMPRE sobre TODOS los materiales, sin importar
+    # cuantas filas quepan visualmente en la hoja -- antes se acumulaba
+    # dentro del mismo for que corta (break) al llenarse la pagina, asi que
+    # un despiece con mas materiales de los que caben en la hoja dejaba el
+    # TOTAL mostrado abajo silenciosamente por debajo del real.
+    subtotal = sum(
+        (fila.get("pzas", 0) or 0) * (fila.get("precio", 0) or 0)
+        for fila in materiales
+    )
+
     c.setFont("Helvetica", 7)
-    subtotal = 0.0
+    n_mostrados = 0
     for fila in materiales:
         if y < 240:
             break
@@ -531,7 +541,6 @@ def _hoja_despiece(c, datos):
         pzas = fila.get("pzas", 0)
         precio = fila.get("precio", 0) or 0
         importe = pzas * precio
-        subtotal += importe
         c.drawRightString(col_x[0] + col_w[0] - 4, y + 3, str(pzas))
         c.drawString(col_x[1] + 3, y + 3, str(fila.get("codigo", ""))[:14])
         c.drawString(col_x[2] + 3, y + 3, str(fila.get("descripcion", ""))[:62])
@@ -543,6 +552,12 @@ def _hoja_despiece(c, datos):
             c.drawRightString(col_x[4] + col_w[4] - 4, y + 3, "cotizar")
             c.drawRightString(col_x[5] + col_w[5] - 4, y + 3, "—")
         y -= 11
+        n_mostrados += 1
+    if n_mostrados < len(materiales):
+        c.setFont("Helvetica-Oblique", 6.5)
+        c.setFillColor(COTA)
+        c.drawString(50, y - 2, f"+ {len(materiales) - n_mostrados} material(es) adicional(es) -- ver despiece completo en Excel/PDF de cotizacion.")
+        c.setFillColor(black)
     c.setStrokeColor(black)
 
     # Totales (esquina derecha, sobre cajetín)
