@@ -279,6 +279,7 @@ async def generar_proyecto_pm(
         # toca el proyecto tecnico. El monto y el descuento son deterministas
         # (ventas_service.py); Claude solo redacta el texto persuasivo.
         pipeline_tracer.emitir(solicitud_id, "ventas", "Calculando descuento y propuesta comercial", "en_progreso")
+        descuento_pct, motivo_descuento = 0.0, ""
         try:
             monto_total = sum(
                 float(m.get("pzas") or 0) * float(m.get("precio") or 0)
@@ -306,7 +307,9 @@ async def generar_proyecto_pm(
         pipeline_tracer.emitir(solicitud_id, "generadores", "Generando PDF, XLSX y modelo 3D", "en_progreso")
         work = Path(tempfile.mkdtemp(prefix="pm_rackbot_"))
         try:
-            salidas = await asyncio.to_thread(pipeline.correr_pipeline, proyecto, work)
+            salidas = await asyncio.to_thread(
+                pipeline.correr_pipeline, proyecto, work, descuento_pct, motivo_descuento,
+            )
             log.info("Pipeline genero %d archivo(s)", len(salidas))
 
             salidas = [p for p in salidas if p.suffix.lower() != ".html"]

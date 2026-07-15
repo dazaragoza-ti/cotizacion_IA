@@ -1,9 +1,13 @@
-"""Genera XLSX de despiece y cotización a partir del JSON de proyecto.
+"""Genera XLSX de despiece a partir del JSON de proyecto.
 
 Uso:  python exportar_xlsx.py datos.json out_dir
 Produce:
   - Despiece_<clave>.xlsx     (de datos["materiales"])
-  - Cotizacion_<clave>.xlsx   (de datos["cotizacion"], si existe)
+
+La cotización YA NO se genera aquí en XLSX -- ver generators/cotizacion_pdf.py
+(reemplazo en PDF, incluye el descuento del Cotizador IA si aplica). La
+función cotizacion() se deja abajo por si algo externo todavía la invoca
+directamente, pero generar() ya no la llama por default.
 """
 from __future__ import annotations
 
@@ -119,11 +123,7 @@ def cotizacion(datos: dict, out_dir: Path) -> Path | None:
 def generar(datos: dict, out_dir) -> list[Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    salidas = [despiece(datos, out_dir)]
-    cot = cotizacion(datos, out_dir)
-    if cot:
-        salidas.append(cot)
-    return salidas
+    return [despiece(datos, out_dir)]
 
 
 if __name__ == "__main__":

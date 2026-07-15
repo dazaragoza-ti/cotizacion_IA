@@ -1,10 +1,11 @@
 """Orquesta los generadores deterministas sobre el JSON de proyecto.
 
 Encadena:
-  1. generators/modelo_3d.py    → modelo 3D (OBJ/DAE/GLB) + renders PNG
-  2. generators/render_html.py  → render 3D interactivo HTML (desde el GLB)
-  3. generators/pm_plano.py     → PDF de planos (4 hojas), incrustando los PNG
-  4. generators/exportar_xlsx.py → XLSX de despiece y cotización
+  1. generators/modelo_3d.py     → modelo 3D (OBJ/DAE/GLB) + renders PNG
+  2. generators/render_html.py   → render 3D interactivo HTML (desde el GLB)
+  3. generators/pm_plano.py      → PDF de planos (4 hojas), incrustando los PNG
+  4. generators/exportar_xlsx.py → XLSX de despiece
+  5. generators/cotizacion_pdf.py → PDF de cotización (con descuento si aplica)
 
 Devuelve la lista de archivos generados, listos para enviar por Telegram.
 Es tolerante a fallos: si un generador falla, sigue con lo que se pueda.
@@ -24,6 +25,7 @@ GEN_DIR = Path(__file__).parent.parent / "generators"
 MODELO_3D = GEN_DIR / "modelo_3d.py"
 PM_PLANO = GEN_DIR / "pm_plano.py"
 EXPORTAR_XLSX = GEN_DIR / "exportar_xlsx.py"
+COTIZACION_PDF = GEN_DIR / "cotizacion_pdf.py"
 RENDER_HTML = GEN_DIR / "render_html.py"
 
 # PNG que produce modelo_3d.py (en <out>/vistas/) → clave de render que lee pm_plano.py
@@ -55,15 +57,29 @@ def _run(args: list[str], cwd: Path) -> str:
     return proc.stdout
 
 
-def correr_pipeline(proyecto: dict, work_dir: Path) -> list[Path]:
-    """Ejecuta los generadores. `work_dir` debe ser un directorio temporal."""
+def correr_pipeline(
+    proyecto: dict, work_dir: Path,
+    descuento_pct: float = 0.0, motivo_descuento: str = "",
+) -> list[Path]:
+    """Ejecuta los generadores. `work_dir` debe ser un directorio temporal.
+
+    `descuento_pct`/`motivo_descuento` vienen del Cotizador IA
+    (ventas_service.calcular_descuento, ver proyecto_pm_service.py) -- se
+    inyectan en el JSON para que cotizacion_pdf.py los muestre, sin que
+    ningun otro generador (planos, 3D, despiece) sepa nada de descuentos.
+    """
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     clave = proyecto.get("clave", "PROYECTO")
 
+    proyecto_con_descuento = dict(proyecto)
+    if descuento_pct > 0:
+        proyecto_con_descuento["descuento_pct"] = descuento_pct
+        proyecto_con_descuento["motivo_descuento"] = motivo_descuento
+
     json_path = work_dir / "proyecto.json"
     json_path.write_text(
-        json.dumps(proyecto, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(proyecto_con_descuento, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     salidas: list[Path] = []
@@ -122,14 +138,22 @@ def correr_pipeline(proyecto: dict, work_dir: Path) -> list[Path]:
     except Exception as e:
         log.warning("pm_plano falló: %s", e)
 
-    # 3) XLSX de despiece y cotización (desde el JSON original)
+    # 3) XLSX de despiece (desde el JSON original)
     try:
         _run([str(EXPORTAR_XLSX), str(json_path), str(work_dir)], cwd=work_dir)
     except Exception as e:
         log.warning("exportar_xlsx falló: %s", e)
-    for nombre in (f"Despiece_{clave}.xlsx", f"Cotizacion_{clave}.xlsx"):
-        p = work_dir / nombre
-        if p.exists():
-            salidas.append(p)
+    despiece_path = work_dir / f"Despiece_{clave}.xlsx"
+    if despiece_path.exists():
+        salidas.append(despiece_path)
+
+    # 4) PDF de cotización (desde el JSON con descuento inyectado, si aplica)
+    cotizacion_path = work_dir / f"Cotizacion_{clave}.pdf"
+    try:
+        _run([str(COTIZACION_PDF), str(json_path), str(cotizacion_path)], cwd=work_dir)
+        if cotizacion_path.exists():
+            salidas.append(cotizacion_path)
+    except Exception as e:
+        log.warning("cotizacion_pdf falló: %s", e)
 
     return salidas
