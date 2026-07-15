@@ -45,13 +45,21 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
   @override
   Widget build(BuildContext context) => BlocBuilder<ArquitecturaCubit, ArquitecturaState>(
     builder: (context, state) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+      Row(children: [
+        const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),
+        const SizedBox(width: 10),
+        _indicadorEnVivo(state.enVivoConectado),
+      ]),
       const SizedBox(height: 4),
       const Text("Cómo fluye una solicitud a través de los motores reales del proyecto. Toca un nodo para ver su detalle.",
           style: TextStyle(fontSize: 12, color: AppColors.textSecond)),
       const SizedBox(height: 8),
       if (state.errores.isNotEmpty) ...[
         _panelFallos(context, state.errores),
+        const SizedBox(height: 12),
+      ],
+      if (state.pasosEnCurso.isNotEmpty) ...[
+        _panelEnCurso(state.pasosEnCurso),
         const SizedBox(height: 12),
       ],
       Wrap(spacing: 12, runSpacing: 6, children: [
@@ -61,6 +69,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         _leyenda(AppColors.red, "Fallo reciente (ver detalle abajo)"),
         _leyendaLinea(AppColors.indigo, "Flujo de datos"),
         _leyendaLinea(AppColors.purple, "Observabilidad (LangSmith), punteado"),
+        _leyendaAnillo(AppColors.cyan, "Solicitud real en curso ahora mismo"),
       ]),
       const SizedBox(height: 16),
       PanelCard(
@@ -85,6 +94,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
                     nodoSeleccionado: _seleccionado,
                     posicionesAbs: posiciones,
                     nodosConError: state.nodosConError,
+                    nodosActivos: state.nodosActivos,
                   ),
                 ),
               ),
@@ -92,7 +102,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
           );
         }),
       ),
-      if (_nodo != null) _panelDetalleNodo(_nodo!)
+      if (_nodo != null) _panelDetalleNodo(_nodo!, state.metricaDe(_nodo!.id), state.pasosEnCurso[_nodo!.id])
       else const AppEmptyState(icon: Icons.touch_app_outlined, message: "Toca cualquier círculo del mapa para ver qué hace ese componente."),
       const SizedBox(height: 16),
       _panelFlujo(
@@ -138,7 +148,30 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     ]),
   );
 
-  Widget _panelDetalleNodo(NodoArquitectura nodo) => PanelCard(
+  Widget _panelEnCurso(Map<String, String> pasosEnCurso) => PanelCard(
+    title: "Ahora mismo",
+    subtitle: "${pasosEnCurso.length} nodo(s) procesando una solicitud real",
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (final entry in pasosEnCurso.entries) Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(
+            width: 12, height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan),
+          ),
+          const SizedBox(width: 8),
+          AppBadge(
+            text: ArquitecturaData.nodos.where((n) => n.id == entry.key).firstOrNull?.label.replaceAll("\n", " ") ?? entry.key,
+            bg: AppColors.indigoLight, fg: AppColors.indigo,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(entry.value, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary))),
+        ]),
+      ),
+    ]),
+  );
+
+  Widget _panelDetalleNodo(NodoArquitectura nodo, Map<String, dynamic> metrica, String? pasoEnCurso) => PanelCard(
     title: nodo.label.replaceAll("\n", " "),
     subtitle: switch (nodo.estado) {
       EstadoNodo.implementado => "Implementado",
@@ -147,6 +180,18 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     },
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(nodo.descripcion, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4)),
+      if (pasoEnCurso != null) ...[
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(
+            width: 12, height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text("Ahora mismo: $pasoEnCurso",
+              style: const TextStyle(fontSize: 12, color: AppColors.indigo, fontWeight: FontWeight.w700))),
+        ]),
+      ],
       if (nodo.capituloManual != null) ...[
         const SizedBox(height: 10),
         Row(children: [
@@ -163,8 +208,47 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         const SizedBox(height: 6),
         _filaEntradaSalida("Entrega", nodo.salidas),
       ],
+      if (_textoEnVivo(nodo.id, metrica) case final texto?) ...[
+        const SizedBox(height: 12),
+        const Divider(height: 1),
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.bolt, size: 14, color: AppColors.emerald),
+          const SizedBox(width: 6),
+          Expanded(child: Text(texto, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w600))),
+        ]),
+      ],
     ]),
   );
+
+  String? _textoEnVivo(String nodoId, Map<String, dynamic> m) {
+    if (m.isEmpty) return null;
+    switch (nodoId) {
+      case "fastapi":
+        return "En vivo: backend ${m["estado"]?.toString() ?? "desconocido"}.";
+      case "supabase":
+        return "En vivo: ${m["estado"]?.toString() ?? "desconocido"}.";
+      case "langsmith":
+        return "En vivo: ${m["configurado"] == true ? "configurado, trazando" : "no configurado (no-op)"}.";
+      case "rag":
+        final chunks = m["chunks_indexados"];
+        return chunks == null ? null : "En vivo: $chunks chunks indexados en knowledge_chunks.";
+      case "graph":
+        final relaciones = m["relaciones_activas"];
+        return relaciones == null ? null : "En vivo: $relaciones relaciones activas en el grafo.";
+      case "claude":
+        final disenos = m["disenos_generados"];
+        if (disenos == null) return null;
+        final tokens = m["tokens_totales"] ?? 0;
+        final costo = m["costo_usd"] ?? 0;
+        return "En vivo: $disenos diseños generados, $tokens tokens, costo USD $costo.";
+      case "promotion":
+        final reglas = m["reglas_activas"];
+        return reglas == null ? null : "En vivo: $reglas reglas activas en reglas_armado.";
+      default:
+        return null;
+    }
+  }
 
   Widget _filaEntradaSalida(String etiqueta, String texto) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     SizedBox(width: 60, child: Text(etiqueta, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecond))),
@@ -228,6 +312,25 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
     );
   }
 
+  Widget _indicadorEnVivo(bool conectado) => Tooltip(
+    message: conectado
+        ? "Supabase Realtime conectado: el mapa se actualiza al instante cuando cambian los datos."
+        : "Realtime no conectado -- se refresca por polling cada 30s.",
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 8, height: 8,
+        decoration: BoxDecoration(
+          color: conectado ? AppColors.emerald : AppColors.textHint,
+          shape: BoxShape.circle,
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(conectado ? "En vivo" : "Polling",
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+              color: conectado ? AppColors.emerald : AppColors.textHint)),
+    ]),
+  );
+
   Widget _leyenda(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
     Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
     const SizedBox(width: 6),
@@ -245,6 +348,15 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
 
   Widget _leyendaLinea(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
     Container(width: 14, height: 2, color: color),
+    const SizedBox(width: 6),
+    Text(texto, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
+  ]);
+
+  Widget _leyendaAnillo(Color color, String texto) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(
+      width: 12, height: 12,
+      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color, width: 1.6)),
+    ),
     const SizedBox(width: 6),
     Text(texto, style: const TextStyle(fontSize: 11, color: AppColors.textSecond)),
   ]);

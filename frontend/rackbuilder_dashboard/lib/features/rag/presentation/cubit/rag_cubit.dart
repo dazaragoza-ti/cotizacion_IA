@@ -1,13 +1,17 @@
+import "dart:async";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "rag_state.dart";
 import "../../domain/usecases/buscar_rag_usecase.dart";
 import "../../domain/usecases/sincronizar_rag_usecase.dart";
+import "../../domain/usecases/get_sync_status_usecase.dart";
 import "../../domain/entities/rag_resultado_entity.dart";
 
 class RagCubit extends Cubit<RagState> {
   final BuscarRagUsecase _buscar;
   final SincronizarRagUsecase _sincronizar;
-  RagCubit(this._buscar, this._sincronizar) : super(RagInitial());
+  final GetSyncStatusUsecase _getSyncStatus;
+  Timer? _pollingSync;
+  RagCubit(this._buscar, this._sincronizar, this._getSyncStatus) : super(RagInitial());
 
   Future<void> buscar(String query, {String? tipo}) async {
     if (query.trim().isEmpty) return;
@@ -24,16 +28,41 @@ class RagCubit extends Cubit<RagState> {
     final actual = state;
     final query = actual is RagResultados ? actual.query : "";
     final resultados = actual is RagResultados ? actual.resultados : const <RagResultadoEntity>[];
-    emit(RagResultados(query: query, resultados: resultados, sincronizando: true, mensaje: "Iniciando sincronización..."));
+    emit(RagResultados(query: query, resultados: resultados, sincronizando: true, mensaje: "Sincronizando catálogo y correcciones..."));
     try {
       // El backend responde de inmediato y sigue sincronizando en segundo
-      // plano (puede tardar más de un minuto por el rate-limit de Voyage) --
-      // no hay que esperar a que termine para saber si arrancó bien.
+      // plano (puede tardar mas de un minuto por el rate-limit de Voyage) --
+      // por eso se consulta /rag/sync/status cada pocos segundos en vez de
+      // asumir que ya termino apenas responde el POST.
       await _sincronizar();
-      emit(RagResultados(query: query, resultados: resultados,
-          mensaje: "Sincronización iniciada en segundo plano — puede tardar uno o dos minutos en verse reflejada en la búsqueda."));
+      _iniciarPollingDeEstado(query, resultados);
     } catch (e) {
       emit(RagResultados(query: query, resultados: resultados, mensaje: "Error al sincronizar: $e"));
     }
+  }
+
+  void _iniciarPollingDeEstado(String query, List<RagResultadoEntity> resultados) {
+    _pollingSync?.cancel();
+    _pollingSync = Timer.periodic(const Duration(seconds: 3), (_) async {
+      bool enProgreso;
+      try {
+        enProgreso = await _getSyncStatus();
+      } catch (_) {
+        return; // un fallo puntual del polling no debe cortar la animacion de carga
+      }
+      if (!enProgreso) {
+        _pollingSync?.cancel();
+        final actual = state;
+        final q = actual is RagResultados ? actual.query : query;
+        final r = actual is RagResultados ? actual.resultados : resultados;
+        emit(RagResultados(query: q, resultados: r, mensaje: "Sincronización completada."));
+      }
+    });
+  }
+
+  @override
+  Future<void> close() {
+    _pollingSync?.cancel();
+    return super.close();
   }
 }

@@ -34,3 +34,61 @@ async def listar_errores_sistema(limit: int = 20, solo_activos: bool = True):
 async def resolver_error_sistema(error_id: str):
     supabase.table("sistema_errores").update({"resuelto": True}).eq("id", error_id).execute()
     return {"ok": True}
+
+@router.get("/sistema/metricas")
+async def metricas_por_nodo():
+    """
+    Metricas reales por nodo del mapa de Arquitectura del Sistema -- la
+    estructura del mapa (nodos/conexiones) sigue siendo estatica (es
+    documentacion, no un grafo autodescubierto), pero cada nodo ahora puede
+    mostrar un dato real y actual al tocarlo, en vez de solo texto fijo.
+    Best-effort por nodo: si una consulta falla, ese nodo simplemente no
+    trae metrica en vez de tumbar el resto.
+    """
+    metricas: dict = {}
+
+    metricas["fastapi"] = {"estado": "activo"}
+    metricas["langsmith"] = {"configurado": bool(os.getenv("LANGSMITH_API_KEY"))}
+
+    try:
+        supabase.table("catalogo_pm").select("codigo").limit(1).execute()
+        metricas["supabase"] = {"estado": "conectado"}
+    except Exception:
+        metricas["supabase"] = {"estado": "sin conexion"}
+
+    try:
+        chunks = supabase.table("knowledge_chunks").select("id").execute()
+        metricas["rag"] = {"chunks_indexados": len(chunks.data or [])}
+    except Exception:
+        metricas["rag"] = {}
+
+    try:
+        edges = supabase.table("knowledge_edges").select("id").execute()
+        metricas["graph"] = {"relaciones_activas": len(edges.data or [])}
+    except Exception:
+        metricas["graph"] = {}
+
+    try:
+        filas = (
+            supabase.table("disenos_racks")
+            .select("input_tokens,output_tokens")
+            .execute()
+        ).data or []
+        input_total = sum(f.get("input_tokens") or 0 for f in filas)
+        output_total = sum(f.get("output_tokens") or 0 for f in filas)
+        costo = input_total / 1_000_000 * 3.00 + output_total / 1_000_000 * 15.00
+        metricas["claude"] = {
+            "disenos_generados": len(filas),
+            "tokens_totales": input_total + output_total,
+            "costo_usd": round(costo, 2),
+        }
+    except Exception:
+        metricas["claude"] = {}
+
+    try:
+        reglas = supabase.table("reglas_armado").select("id").eq("activa", True).execute()
+        metricas["promotion"] = {"reglas_activas": len(reglas.data or [])}
+    except Exception:
+        metricas["promotion"] = {}
+
+    return {"metricas": metricas}

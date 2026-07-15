@@ -12,4 +12,7 @@ class RagRepositoryImpl implements RagRepository {
 
   @override
   Future<void> sync() => _ds.sync();
+
+  @override
+  Future<bool> syncEnProgreso() => _ds.syncEnProgreso();
 }

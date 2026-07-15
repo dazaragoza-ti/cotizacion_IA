@@ -14,12 +14,14 @@ class RedArquitecturaPainter extends CustomPainter {
   final String? nodoSeleccionado;
   final Map<String, Offset> posicionesAbs;
   final Set<String> nodosConError;
+  final Set<String> nodosActivos; // por aqui esta pasando una solicitud real AHORA
 
   RedArquitecturaPainter({
     required this.pulso,
     required this.nodoSeleccionado,
     required this.posicionesAbs,
     this.nodosConError = const {},
+    this.nodosActivos = const {},
   });
 
   Offset _pos(String id) => posicionesAbs[id] ?? Offset.zero;
@@ -56,9 +58,21 @@ class RedArquitecturaPainter extends CustomPainter {
       if (pos == Offset.zero) continue;
       final seleccionado = nodoSeleccionado == n.id;
       final conError = nodosConError.contains(n.id);
+      final activo = nodosActivos.contains(n.id);
       final color = conError ? AppColors.red : colorDeEstado(n.estado);
       final radio = seleccionado ? 30.0 : 26.0;
       final noImplementado = n.estado == EstadoNodo.noImplementado;
+
+      if (activo) {
+        // Onda expansiva: una peticion real esta pasando por este nodo AHORA
+        // (eventos_pipeline via Realtime), distinto del pulso decorativo de
+        // las conexiones y de la insignia roja de error.
+        final radioOnda = radio + 4 + 14 * pulso;
+        canvas.drawCircle(pos, radioOnda, Paint()
+          ..color = AppColors.cyan.withValues(alpha: (1 - pulso) * 0.6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5);
+      }
 
       canvas.drawCircle(pos, radio + 6,
           Paint()..color = color.withValues(alpha: seleccionado ? 0.22 : (conError ? 0.18 : 0.10)));
@@ -136,5 +150,6 @@ class RedArquitecturaPainter extends CustomPainter {
   bool shouldRepaint(covariant RedArquitecturaPainter oldDelegate) =>
       oldDelegate.pulso != pulso ||
       oldDelegate.nodoSeleccionado != nodoSeleccionado ||
-      oldDelegate.nodosConError != nodosConError;
+      oldDelegate.nodosConError != nodosConError ||
+      oldDelegate.nodosActivos != nodosActivos;
 }
