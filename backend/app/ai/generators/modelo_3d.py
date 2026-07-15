@@ -38,6 +38,19 @@ def _box(x, y, z, dx, dy, dz, color):
     return m
 
 
+def _mesh_para_glb(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Este generador construye todo en Z-arriba (Z = altura del rack), pero
+    el formato glTF/GLB exige convencion Y-arriba -- sin esta conversion,
+    cualquier visor glTF estricto (model-viewer del dashboard, Three.js
+    GLTFLoader) muestra el rack "acostado"/rotado 90 grados, con piezas que
+    deberian ser verticales viendose como si flotaran en diagonal. Se aplica
+    SOLO al GLB; OBJ/DAE se quedan en Z-arriba (SketchUp los espera asi)."""
+    convertido = mesh.copy()
+    rotacion = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    convertido.apply_transform(rotacion)
+    return convertido
+
+
 def _bar(p0, p1, thickness, color):
     """Barra cilíndrica de p0 a p1."""
     p0 = np.array(p0, float)
@@ -353,7 +366,7 @@ def generar(datos_json_path, out_dir):
         print(f"DAE: {dae_path}")
     except Exception as e:
         print(f"DAE skip: {e}")
-    mesh_full.export(str(glb_path))
+    _mesh_para_glb(mesh_full).export(str(glb_path))
 
     # Renders del proyecto completo (planta para overview)
     titulo = datos.get("proyecto", "PROYECTO")
