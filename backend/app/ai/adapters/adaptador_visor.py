@@ -228,6 +228,12 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
                     vigas.append({
                         "sku": sku_larguero, "nivel": nivel_idx,
                         "posicion": {"x": round(xc, 3), "y": round(ny, 3), "z": round(z, 3)},
+                        # El modelo real (LARGUERO_302X15.2_C14.glb) esta modelado con
+                        # su largo a lo largo de su propio eje Z local, pero necesita
+                        # extenderse en X (direccion del frente, entre los dos postes) --
+                        # sin esta rotacion se ve como una barra diagonal flotando sin
+                        # conectar los marcos.
+                        "rotacion": {"x": 0, "y": 1.5707963267948966, "z": 0},
                     })
                     mensulas.append({
                         "sku": sku_mensula_izq, "nivel": nivel_idx, "lado": "izq",
