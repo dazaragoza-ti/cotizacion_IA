@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..ai.clients import claude_client
+from ..ai.clients import claude_client, ventas_client
 
 from ..ai.pipelines import pipeline
 
@@ -34,6 +34,7 @@ from ..ai.rag.vector_store import vector_store
 from ..ai.context_builder import construir_descripcion_extendida
 from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
+from . import ventas_service
 from ..clients import supabase
 from ..config import URL_FRONTEND
 from ..core import pipeline_tracer
@@ -50,6 +51,7 @@ class ResultadoProyectoPM:
     link_visor_3d: str | None = None
     historial_id: int | None = None
     error: str | None = None
+    propuesta_comercial: str | None = None
 
 
 MAX_INTENTOS_DISENO = 2
@@ -271,6 +273,35 @@ async def generar_proyecto_pm(
                     material["precio"] = precio_real
         except Exception as e:
             log.warning("No se pudo verificar precios contra catalogo_pm, se usan los del JSON: %s", e)
+
+        # Cotizador IA / Ventas (Cap. 7.12): segundo agente, dominio de negocio
+        # (descuentos, historial de cliente) -- nunca calcula ingenieria ni
+        # toca el proyecto tecnico. El monto y el descuento son deterministas
+        # (ventas_service.py); Claude solo redacta el texto persuasivo.
+        pipeline_tracer.emitir(solicitud_id, "ventas", "Calculando descuento y propuesta comercial", "en_progreso")
+        try:
+            monto_total = sum(
+                float(m.get("pzas") or 0) * float(m.get("precio") or 0)
+                for m in (proyecto.get("materiales", []) or [])
+            )
+            cliente_id = ventas_service.buscar_o_crear_cliente(proyecto.get("cliente") or "")
+            if cliente_id and monto_total > 0:
+                hist = ventas_service.historial_cliente(cliente_id)
+                descuento_pct, motivo_descuento = ventas_service.calcular_descuento(
+                    monto_total, hist["monto_total_historico"],
+                )
+                resultado.propuesta_comercial = await ventas_client.generar_propuesta_comercial(
+                    proyecto=proyecto, monto_total=monto_total,
+                    descuento_pct=descuento_pct, motivo_descuento=motivo_descuento,
+                    numero_pedidos_cliente=hist["numero_pedidos"],
+                )
+                ventas_service.registrar_compra_cliente(cliente_id, monto_total)
+                pipeline_tracer.emitir(solicitud_id, "ventas", "Propuesta comercial generada", "completado")
+            else:
+                pipeline_tracer.emitir(solicitud_id, "ventas", "Sin cliente identificado, se omite propuesta", "completado")
+        except Exception as e:
+            log.warning("Cotizador IA (ventas) fallo, se omite propuesta comercial: %s", e)
+            pipeline_tracer.emitir(solicitud_id, "ventas", f"Fallo: {e}", "error")
 
         pipeline_tracer.emitir(solicitud_id, "generadores", "Generando PDF, XLSX y modelo 3D", "en_progreso")
         work = Path(tempfile.mkdtemp(prefix="pm_rackbot_"))

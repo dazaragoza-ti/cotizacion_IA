@@ -254,6 +254,9 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 "El diseño y la cotización de arriba siguen siendo válidos."
             )
 
+        if resultado.propuesta_comercial:
+            await update.message.reply_text(resultado.propuesta_comercial)
+
     try:
         await status.delete()
     except Exception:  # noqa: BLE001

@@ -186,15 +186,14 @@ class ArquitecturaData {
     NodoArquitectura(
       id: "ventas", label: "Ventas /\nCotizador IA", icon: Icons.storefront_outlined,
       posicion: Offset(0.90, 0.85),
-      estado: EstadoNodo.noImplementado,
-      descripcion: "Futuro agente independiente (NO construido aun, iniciativa separada "
-          "acordada con el usuario): descuentos por volumen, propuesta comercial "
-          "persuasiva separada del PDF tecnico, historial de cliente tipo CRM. "
-          "Seria el primer caso real que justifica un segundo agente, porque razona "
-          "sobre un dominio distinto (negocio) con reglas propias, no sobre ingenieria.",
-      capituloManual: "Cap. 7.12 - Dominio independiente que si justificaria multi-agente",
-      entradas: "JSON de cotizacion actual + historial de compras del cliente (a definir).",
-      salidas: "Propuesta comercial con descuentos y seguimiento -- pendiente de diseno.",
+      descripcion: "app/services/ventas_service.py + ai/clients/ventas_client.py: "
+          "el primer y unico segundo agente del sistema -- se justifica porque razona "
+          "sobre un dominio distinto (negocio) del proyectista tecnico. El descuento "
+          "y el historial del cliente se calculan en Python determinista (nunca los "
+          "inventa el LLM); Claude solo redacta la propuesta comercial persuasiva.",
+      capituloManual: "Cap. 7.12 - Dominio independiente que si justifica multi-agente",
+      entradas: "JSON de cotizacion ya con precios reales + historial de compras del cliente (tabla clientes).",
+      salidas: "Mensaje de Telegram con la propuesta comercial y el descuento aplicable, si hay uno.",
     ),
   ];
 
@@ -213,7 +212,9 @@ class ArquitecturaData {
     ConexionArquitectura("claude", "supabase"),
     ConexionArquitectura("graph", "promotion"),
     ConexionArquitectura("promotion", "supabase"),
-    ConexionArquitectura("generadores", "ventas", etiqueta: "futuro: cotizacion con reglas propias"),
+    ConexionArquitectura("generadores", "ventas", etiqueta: "descuento + propuesta comercial"),
+    ConexionArquitectura("ventas", "usuario", etiqueta: "propuesta comercial"),
+    ConexionArquitectura("ventas", "supabase"),
     ConexionArquitectura("langsmith", "claude", observabilidad: true),
     ConexionArquitectura("langsmith", "engineering", observabilidad: true),
     ConexionArquitectura("langsmith", "rag", observabilidad: true),
@@ -244,8 +245,11 @@ class ArquitecturaData {
         relacionados: ["langsmith"]),
     PasoFlujo(8, "generadores", "Se generan los entregables",
         "PDF de planos, XLSX de despiece y cotizacion, modelo 3D GLB/DAE y renders PNG."),
-    PasoFlujo(9, "usuario", "El cliente recibe la respuesta",
-        "Archivos + mensaje de texto, todo en el mismo hilo de Telegram."),
+    PasoFlujo(9, "ventas", "Cotizador IA calcula el descuento y redacta la propuesta",
+        "Identifica al cliente, revisa su historial de compras y aplica reglas de descuento "
+        "deterministas; Claude solo redacta el texto persuasivo con ese resultado ya calculado."),
+    PasoFlujo(10, "usuario", "El cliente recibe la respuesta",
+        "Archivos + cotizacion tecnica + propuesta comercial, todo en el mismo hilo de Telegram."),
   ];
 
   /// Flujo 2: como una correccion manual (un vendedor corrigiendo un diseno)
