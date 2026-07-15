@@ -23,6 +23,14 @@ referencia del bucket de ejemplos la incluyen. Por eso, ademas del SKU,
 mandamos "dimensiones" ya calculadas (en metros, a partir del fondo_mm real
 de este rack) para que el visor arme un fallback geometrico con las
 proporciones correctas en vez de caer al tamano generico por defecto.
+
+El entrepano SI tiene modelo(s) real(es) en catalogo_piezas, pero en tallas
+fijas de fondo (91.5cm, 123cm) que no siempre calzan con el fondo exacto de
+cada diseño -- se elige la más parecida y, como con el cargador, también se
+manda "dimensiones" (con el ancho real del bay) para el fallback geométrico.
+No todos los racks llevan entrepano: si no hay ninguna pieza real cargada
+en catalogo_piezas, simplemente no se generan (a diferencia de marco/viga/
+mensula, que siempre existen como fallback del despiece del proyectista PM).
 """
 from __future__ import annotations
 
@@ -69,6 +77,25 @@ def _sku_representativo(materiales: list[dict], palabras_clave: list[str], defau
         if any(k in desc for k in palabras_clave):
             return m.get("codigo") or default
     return default
+
+
+def _buscar_entrepano(catalogo_piezas: list[dict], fondo_m: float) -> str | None:
+    """Los entrepanos (tipo 'entrepano' en catalogo_piezas) vienen en tallas
+    fijas de fondo (91.5cm, 123cm...) que no siempre calzan exacto con el
+    fondo real de cada rack -- se elige, entre las piezas reales (con .glb),
+    la que tenga longitud_metros (fondo de fabrica) mas parecido a este
+    diseño. A diferencia de marco/viga/mensula, no todos los racks llevan
+    entrepano, asi que si no hay ninguna pieza real cargada, se devuelve
+    None y sencillamente no se generan (no hay SKU generico de respaldo)."""
+    candidatos = [
+        p for p in catalogo_piezas or []
+        if "entrepano" in f"{p.get('tipo', '')} {p.get('nombre', '')}".lower()
+        and (p.get("url_modelo_glb") or "").strip()
+    ]
+    if not candidatos:
+        return None
+    mas_cercano = min(candidatos, key=lambda p: abs((p.get("longitud_metros") or 0) - fondo_m))
+    return _sku_de(mas_cercano)
 
 
 def _es_carga_pesada(proyecto: dict) -> bool:
@@ -145,6 +172,7 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         _buscar_pieza_real(catalogo_piezas, ["cargador"])
         or _sku_representativo(materiales, ["cargador"], "CARGADOR-PM")
     )
+    sku_entrepano = _buscar_entrepano(catalogo_piezas, m_fondo)
 
     peralte_larguero_m = (layout.get("peralte_larguero_mm", 100) or 100) / 1000
     tiene_cargadores = _es_carga_pesada(proyecto)
@@ -153,11 +181,16 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
     # 30mm) -- el "largo" que varia por rack es el fondo, no un valor fijo de
     # catalogo, por eso se calcula aqui en vez de venir de catalogo_piezas.
     dim_cargador = {"largo": 0.06, "alto": 0.03, "profundidad": round(m_fondo, 3)}
+    # El entrepano si tiene modelo real, pero su "largo" (ancho del bay) varia
+    # por diseño mientras que la pieza de catalogo es de talla fija -- se manda
+    # tambien "dimensiones" para que el visor escale el fallback si hiciera falta.
+    dim_entrepano = {"alto": 0.02, "profundidad": round(m_fondo, 3)}
 
     marcos: list[dict] = []
     vigas: list[dict] = []
     mensulas: list[dict] = []
     cargadores: list[dict] = []
+    entrepanos: list[dict] = []
 
     for corrida in range(n_corridas):
         z_base = corrida * (m_fondo + m_pasillo)
@@ -203,6 +236,19 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
                             "dimensiones": dim_cargador,
                         })
 
+                if sku_entrepano:
+                    # Un panel por bay por nivel, apoyado encima de las vigas
+                    # (mismo "y" que el cargador), cubriendo todo el fondo.
+                    entrepanos.append({
+                        "sku": sku_entrepano, "nivel": nivel_idx,
+                        "posicion": {
+                            "x": round(xc, 3),
+                            "y": round(ny + peralte_larguero_m, 3),
+                            "z": round(z_centro, 3),
+                        },
+                        "dimensiones": {"largo": round(x2 - x1, 3), **dim_entrepano},
+                    })
+
     return {
         "tipo_rack": proyecto.get("especificacion") or layout.get("tipo") or "Rack",
         "peso_maximo_por_nivel_kg": memoria.get("carga_nivel_kg"),
@@ -216,4 +262,5 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         "vigas": vigas,
         "mensulas": mensulas,
         "cargadores": cargadores,
+        "entrepanos": entrepanos,
     }
