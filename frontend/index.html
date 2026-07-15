@@ -306,7 +306,7 @@
         // --- 2. CARGA DE MODELOS PUROS (SIN ENSAMBLE PROCEDURAL DEL FRONTEND) ---
         function renderComponente(comp, tipo) {
             // Colores oscuros de contraste para las geometrías de fallback (mejor legibles en fondo blanco)
-            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : (tipo === 'cargador' ? 0x64748b : (tipo === 'entrepano' ? 0x16a34a : 0x4f46e5)));
+            const materialColor = tipo === 'marco' ? 0x334155 : (tipo === 'viga' ? 0xd97706 : (tipo === 'cargador' ? 0x64748b : (tipo === 'entrepano' ? 0x16a34a : (tipo === 'placa' ? 0x94a3b8 : 0x4f46e5))));
             
             // Normalizar el SKU para mapear con precisión el catálogo
             const normalizedSku = comp.sku ? comp.sku.trim().toUpperCase() : "";
@@ -579,6 +579,15 @@
                 matriz.entrepanos.forEach(e => {
                     renderComponente(e, 'entrepano');
                     agregarAListaVisual(e.sku, `Entrepano (Nivel ${e.nivel})`);
+                });
+            }
+
+            // Recorrer y renderizar placas soporte (base bajo cada poste --
+            // sin .glb real todavia, siempre cae al fallback geometrico)
+            if (matriz.placas) {
+                matriz.placas.forEach(p => {
+                    renderComponente(p, 'placa');
+                    agregarAListaVisual(p.sku, 'Placa soporte');
                 });
             }
         }

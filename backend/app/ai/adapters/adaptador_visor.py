@@ -31,6 +31,13 @@ manda "dimensiones" (con el ancho real del bay) para el fallback geométrico.
 No todos los racks llevan entrepano: si no hay ninguna pieza real cargada
 en catalogo_piezas, simplemente no se generan (a diferencia de marco/viga/
 mensula, que siempre existen como fallback del despiece del proyectista PM).
+
+La placa soporte (base bajo cada poste) es una de las 4 piezas centrales
+del kit de referencia "(-)_RACK_180X61X151" -- antes no se generaba en
+absoluto. Todavía no existe un .glb real independiente para ella (solo
+viene empaquetada dentro de ese kit de referencia), así que siempre cae
+al fallback geométrico con dimensiones estimadas (15x15cm, 1cm de grueso
+-- una placa de acero típica bajo poste, no un dato de catálogo real).
 """
 from __future__ import annotations
 
@@ -173,6 +180,10 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         or _sku_representativo(materiales, ["cargador"], "CARGADOR-PM")
     )
     sku_entrepano = _buscar_entrepano(catalogo_piezas, m_fondo)
+    sku_placa = (
+        _buscar_pieza_real(catalogo_piezas, ["placa"])
+        or _sku_representativo(materiales, ["placa"], "PLACA-PM")
+    )
 
     peralte_larguero_m = (layout.get("peralte_larguero_mm", 100) or 100) / 1000
     tiene_cargadores = _es_carga_pesada(proyecto)
@@ -185,12 +196,16 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
     # por diseño mientras que la pieza de catalogo es de talla fija -- se manda
     # tambien "dimensiones" para que el visor escale el fallback si hiciera falta.
     dim_entrepano = {"alto": 0.02, "profundidad": round(m_fondo, 3)}
+    # Placa soporte: sin .glb ni medida real de catalogo todavia -- estimado
+    # razonable de una placa de acero bajo poste (15x15cm, 1cm de grueso).
+    dim_placa = {"largo": 0.15, "alto": 0.01, "profundidad": 0.15}
 
     marcos: list[dict] = []
     vigas: list[dict] = []
     mensulas: list[dict] = []
     cargadores: list[dict] = []
     entrepanos: list[dict] = []
+    placas: list[dict] = []
 
     for corrida in range(n_corridas):
         z_base = corrida * (m_fondo + m_pasillo)
@@ -201,6 +216,9 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         for x in xs_marco:
             marcos.append({"sku": sku_cabecera, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_frente, 3)}})
             marcos.append({"sku": sku_cabecera, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_fondo, 3)}})
+            # Placa soporte bajo cada poste (misma posicion x/z que el marco, y=0).
+            placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_frente, 3)}, "dimensiones": dim_placa})
+            placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_fondo, 3)}, "dimensiones": dim_placa})
 
         for nivel_idx, ny in enumerate(niveles_m[1:], start=1):
             for bay in range(n_bays):
@@ -263,4 +281,5 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         "mensulas": mensulas,
         "cargadores": cargadores,
         "entrepanos": entrepanos,
+        "placas": placas,
     }
