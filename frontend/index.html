@@ -377,7 +377,22 @@
                         modelo.updateMatrixWorld(true);
                         const bboxLocal = new THREE.Box3().setFromObject(modelo);
                         const offsetY = Number.isFinite(bboxLocal.min.y) ? -bboxLocal.min.y : 0;
-                        modelo.position.set(posX, posY + offsetY, posZ);
+
+                        // NORMALIZAR PIVOTE HORIZONTAL (solo piezas rotadas, p. ej.
+                        // el larguero): su "posicion" viene calculada por el backend
+                        // como el punto CENTRAL entre los dos postes (xc = (x1+x2)/2),
+                        // pero el .glb real del larguero tiene el origen local lejos
+                        // del centro de su propio volumen (pivote de fabrica, no
+                        // centrado) -- sin esto, tras rotar, la pieza queda descentrada
+                        // (se ve corrida hacia un lado, sin llegar al poste opuesto o
+                        // saliendose del otro). Centramos el bbox local (X/Z) en el
+                        // punto indicado, igual que ya se hace con Y para la base.
+                        let offsetX = 0, offsetZ = 0;
+                        if (comp.rotacion) {
+                            offsetX = Number.isFinite(bboxLocal.min.x) ? -(bboxLocal.min.x + bboxLocal.max.x) / 2 : 0;
+                            offsetZ = Number.isFinite(bboxLocal.min.z) ? -(bboxLocal.min.z + bboxLocal.max.z) / 2 : 0;
+                        }
+                        modelo.position.set(posX + offsetX, posY + offsetY, posZ + offsetZ);
 
                         objectsGroup.add(modelo);
                         debugLog(`Modelo ${comp.sku} montado correctamente.`, "ok");
