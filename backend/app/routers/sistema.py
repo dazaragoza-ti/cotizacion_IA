@@ -48,7 +48,21 @@ async def metricas_por_nodo():
     metricas: dict = {}
 
     metricas["fastapi"] = {"estado": "activo"}
-    metricas["langsmith"] = {"configurado": bool(os.getenv("LANGSMITH_API_KEY"))}
+
+    try:
+        trazados = (
+            supabase.table("disenos_racks")
+            .select("id", count="exact")
+            .not_.is_("langsmith_run_id", "null")
+            .execute()
+        )
+        metricas["langsmith"] = {
+            "configurado": bool(os.getenv("LANGSMITH_API_KEY")),
+            "runs_trazados": trazados.count or 0,
+            "proyecto": os.getenv("LANGSMITH_PROJECT"),
+        }
+    except Exception:
+        metricas["langsmith"] = {"configurado": bool(os.getenv("LANGSMITH_API_KEY"))}
 
     try:
         supabase.table("catalogo_pm").select("codigo").limit(1).execute()

@@ -163,10 +163,10 @@ class ArquitecturaData {
     NodoArquitectura(
       id: "langsmith", label: "LangSmith", icon: Icons.visibility_outlined,
       posicion: Offset(0.90, 0.2),
-      estado: EstadoNodo.parcial,
       descripcion: "app/ai/tracing.py: traza cada llamada a Claude (prompt real, "
           "tokens, costo via usage_metadata, retriever, run_id correlacionado "
-          "con disenos_racks). No-op si no esta configurado.",
+          "con disenos_racks). Activo: LANGSMITH_API_KEY configurada, proyecto \"racks\". "
+          "No-op automatico si la key llegara a faltar.",
       capituloManual: "Cap. 10 - Observabilidad",
       entradas: "Cada llamada a Claude, RAG y Engineering Engine (via decoradores).",
       salidas: "Trazas visibles en el dashboard de LangSmith: costo, latencia, prompt exacto.",

@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
+import "package:url_launcher/url_launcher.dart";
 import "../../../../shared/widgets/app_widgets.dart";
 import "../../domain/nodo_arquitectura.dart";
 import "../../domain/error_sistema.dart";
@@ -218,6 +219,17 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
           Expanded(child: Text(texto, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w600))),
         ]),
       ],
+      if (nodo.id == "langsmith" && metrica["configurado"] == true) ...[
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () => launchUrl(
+            Uri.parse("https://smith.langchain.com"),
+            mode: LaunchMode.externalApplication,
+          ),
+          icon: const Icon(Icons.open_in_new, size: 14),
+          label: const Text("Ver trazas en LangSmith", style: TextStyle(fontSize: 12)),
+        ),
+      ],
     ]),
   );
 
@@ -229,7 +241,12 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
       case "supabase":
         return "En vivo: ${m["estado"]?.toString() ?? "desconocido"}.";
       case "langsmith":
-        return "En vivo: ${m["configurado"] == true ? "configurado, trazando" : "no configurado (no-op)"}.";
+        if (m["configurado"] != true) return "En vivo: no configurado (no-op).";
+        final runs = m["runs_trazados"];
+        final proyecto = m["proyecto"];
+        return "En vivo: trazando"
+            "${proyecto != null ? " (proyecto \"$proyecto\")" : ""}"
+            "${runs != null ? ", $runs diseños con traza en disenos_racks" : ""}.";
       case "rag":
         final chunks = m["chunks_indexados"];
         return chunks == null ? null : "En vivo: $chunks chunks indexados en knowledge_chunks.";
