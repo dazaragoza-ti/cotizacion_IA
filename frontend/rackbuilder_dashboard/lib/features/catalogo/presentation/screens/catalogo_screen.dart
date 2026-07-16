@@ -33,7 +33,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
   }
 
   Future<void> _pick() async {
-    final r = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ["glb", "gltf"], withData: true);
+    final r = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ["glb", "gltf"], withData: true);
     if (r != null && r.files.single.bytes != null) setState(() { _bytes = r.files.single.bytes; _fileName = r.files.single.name; });
   }
 

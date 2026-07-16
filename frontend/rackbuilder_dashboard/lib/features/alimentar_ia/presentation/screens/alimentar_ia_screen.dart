@@ -15,7 +15,7 @@ class AlimentarIaScreen extends StatefulWidget {
 
 class _AlimentarIaScreenState extends State<AlimentarIaScreen> {
   Future<void> _subirArchivo(BuildContext ctx) async {
-    final r = await FilePicker.platform.pickFiles(withData: true);
+    final r = await FilePicker.pickFiles(withData: true);
     if (r == null || r.files.single.bytes == null) return;
     if (!ctx.mounted) return;
     await ctx.read<AlimentarIaCubit>().subirArchivo(
