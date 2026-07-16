@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:get_it/get_it.dart';
 import '../../features/dashboard/data/datasources/dashboard_remote_datasource.dart';
 import '../../features/dashboard/data/repositories/dashboard_repository_impl.dart';
@@ -51,6 +52,10 @@ import '../network/api_client.dart';
 final sl = GetIt.instance;
 
 Future<void> setupServiceLocator() async {
+  // Habilita la extension de DevTools de get_it (ver que esta registrado,
+  // en que scope, su estado) -- solo en debug, sin costo en produccion.
+  if (kDebugMode) sl.debugEventsEnabled = true;
+
   // ── Core ──────────────────────────────────────────────────────────────────
   sl.registerLazySingleton(() => ApiClient.instance);
 
