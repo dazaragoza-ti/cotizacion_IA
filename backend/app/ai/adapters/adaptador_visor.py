@@ -140,6 +140,21 @@ def _es_carga_pesada(proyecto: dict) -> bool:
 # (misma tabla que validator_engine.FRENTES_CON_2_CARGADORES).
 _FRENTES_CON_2_CARGADORES = (2804, 3104)
 
+# El marco real (CABECERA_302X91_CON_TRAVESANO.glb) no es solo 2 postes --
+# trae SU PROPIO travesano/diagonales soldados a alturas fijas (medido con
+# trimesh sobre el GLB real, relativo al piso): ~0.14m (banda inferior),
+# ~1.49-1.55m (banda intermedia) y ~2.88m (banda superior, el tope del
+# marco). Si un nivel de larguero cae casi exactamente en la banda
+# intermedia, el larguero queda visualmente encimado/redundante con esa
+# barra interna del marco (reportado por el usuario comparando contra el
+# armado real). Se despega el nivel hacia arriba, fuera de la banda.
+_BANDA_TRAVESANO_INTERMEDIO_M = (1.45, 1.60)
+
+
+def _evitar_travesano_marco(ny: float) -> float:
+    lo, hi = _BANDA_TRAVESANO_INTERMEDIO_M
+    return hi + 0.15 if lo <= ny <= hi else ny
+
 
 def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | None = None) -> dict:
     """
@@ -243,7 +258,8 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
             placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_frente, 3)}, "dimensiones": dim_placa})
             placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_fondo, 3)}, "dimensiones": dim_placa})
 
-        for nivel_idx, ny in enumerate(niveles_m[1:], start=1):
+        for nivel_idx, ny_bruto in enumerate(niveles_m[1:], start=1):
+            ny = _evitar_travesano_marco(ny_bruto)
             for bay in range(n_bays):
                 x1, x2 = xs_marco[bay], xs_marco[bay + 1]
                 xc = (x1 + x2) / 2
