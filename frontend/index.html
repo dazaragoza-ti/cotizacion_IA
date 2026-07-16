@@ -391,6 +391,15 @@
                         if (comp.rotacion) {
                             offsetX = Number.isFinite(bboxLocal.min.x) ? -(bboxLocal.min.x + bboxLocal.max.x) / 2 : 0;
                             offsetZ = Number.isFinite(bboxLocal.min.z) ? -(bboxLocal.min.z + bboxLocal.max.z) / 2 : 0;
+                        } else if (tipo === 'marco') {
+                            // El marco real (CABECERA_302X91_CON_TRAVESANO.glb) no tiene
+                            // su origen local en la esquina frontal-inferior-izquierda --
+                            // sin este ajuste, el marco completo (ambos postes) queda
+                            // corrido varios centimetros en X/Z respecto a donde el
+                            // backend lo coloco, desalineado de las mensulas/vigas que
+                            // SI se posicionan en el x/z exacto de cada poste.
+                            offsetX = Number.isFinite(bboxLocal.min.x) ? -bboxLocal.min.x : 0;
+                            offsetZ = Number.isFinite(bboxLocal.min.z) ? -bboxLocal.min.z : 0;
                         }
                         modelo.position.set(posX + offsetX, posY + offsetY, posZ + offsetZ);
 

@@ -214,9 +214,16 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
 
         xs_marco = [b * m_frente for b in range(n_bays + 1)]
         for x in xs_marco:
+            # El GLB real (CABECERA_302X91_CON_TRAVESANO) ya es el marco
+            # COMPLETO: ambos postes (frontal y trasero) unidos por su
+            # travesano/diagonales en una sola pieza -- su propio nombre lo
+            # dice ("91" = 91cm de fondo, el fondo real de la pieza). Antes
+            # se generaba una instancia en z_frente Y OTRA en z_fondo,
+            # duplicando el marco completo dos veces superpuesto por cada
+            # poste ("un solo rack" terminaba con 4 cabeceras en vez de 2).
             marcos.append({"sku": sku_cabecera, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_frente, 3)}})
-            marcos.append({"sku": sku_cabecera, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_fondo, 3)}})
-            # Placa soporte bajo cada poste (misma posicion x/z que el marco, y=0).
+            # Placa soporte bajo cada pata del marco (el marco real tiene 2
+            # patas -- frontal y trasera -- aunque sea una sola pieza de catalogo).
             placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_frente, 3)}, "dimensiones": dim_placa})
             placas.append({"sku": sku_placa, "posicion": {"x": round(x, 3), "y": 0, "z": round(z_fondo, 3)}, "dimensiones": dim_placa})
 
