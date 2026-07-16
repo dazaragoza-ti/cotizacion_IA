@@ -77,6 +77,23 @@ def _buscar_pieza_real(catalogo_piezas: list[dict], categorias: list[str], lado:
     return _sku_de(pool[0])
 
 
+def _longitud_real(catalogo_piezas: list[dict], sku: str | None) -> float | None:
+    """
+    Longitud real (metros) de una pieza de catalogo por su SKU -- usada para
+    que el ancho de bay (separacion entre marcos) coincida EXACTAMENTE con
+    el largo real del larguero que se va a montar ahi, en vez de un
+    frente_mm arbitrario del layout que no calce con ningun producto real
+    (el larguero es una pieza de tamano fijo, no se puede "estirar").
+    """
+    if not sku:
+        return None
+    for p in catalogo_piezas or []:
+        if _sku_de(p) == sku:
+            longitud = p.get("longitud_metros")
+            return float(longitud) if longitud else None
+    return None
+
+
 def _sku_representativo(materiales: list[dict], palabras_clave: list[str], default: str) -> str:
     """Fallback: busca en el despiece real del proyectista PM un código que matchee la categoría."""
     for m in materiales:
@@ -165,16 +182,10 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         _buscar_pieza_real(catalogo_piezas, ["larguero", "viga"])
         or _sku_representativo(materiales, ["larguero"], "LARGUERO-PM")
     )
-    sku_mensula_izq = (
-        _buscar_pieza_real(catalogo_piezas, ["mensula", "ménsula"], lado="izquierda")
-        or _buscar_pieza_real(catalogo_piezas, ["mensula", "ménsula"])
-        or _sku_representativo(materiales, ["mensula", "ménsula"], sku_larguero)
-    )
-    sku_mensula_der = (
-        _buscar_pieza_real(catalogo_piezas, ["mensula", "ménsula"], lado="derecha")
-        or _buscar_pieza_real(catalogo_piezas, ["mensula", "ménsula"])
-        or _sku_representativo(materiales, ["mensula", "ménsula"], sku_larguero)
-    )
+    # Nota: ya NO se genera una pieza de mensula por separado -- el modelo
+    # real del larguero (LARGUERO_302X15.2_C14.glb) ya trae el conector/gancho
+    # de union modelado en sus propios extremos, asi que una mensula aparte
+    # solo duplicaba geometria que el larguero ya incluye.
     sku_cargador = (
         _buscar_pieza_real(catalogo_piezas, ["cargador"])
         or _sku_representativo(materiales, ["cargador"], "CARGADOR-PM")
@@ -184,6 +195,11 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
         _buscar_pieza_real(catalogo_piezas, ["placa"])
         or _sku_representativo(materiales, ["placa"], "PLACA-PM")
     )
+
+    # El ancho de bay real es el largo del larguero que se va a usar, no el
+    # frente_mm "teorico" del layout -- si no coinciden, el larguero (tamano
+    # fijo de catalogo) queda flotando corto o sobrando largo entre marcos.
+    m_frente = _longitud_real(catalogo_piezas, sku_larguero) or m_frente
 
     peralte_larguero_m = (layout.get("peralte_larguero_mm", 100) or 100) / 1000
     tiene_cargadores = _es_carga_pesada(proyecto)
@@ -242,15 +258,6 @@ def layout_a_matriz_ensamble_3d(proyecto: dict, catalogo_piezas: list[dict] | No
                         # conectar los marcos.
                         "rotacion": {"x": 0, "y": 1.5707963267948966, "z": 0},
                     })
-                    mensulas.append({
-                        "sku": sku_mensula_izq, "nivel": nivel_idx, "lado": "izq",
-                        "posicion": {"x": round(x1, 3), "y": round(ny, 3), "z": round(z, 3)},
-                    })
-                    mensulas.append({
-                        "sku": sku_mensula_der, "nivel": nivel_idx, "lado": "der",
-                        "posicion": {"x": round(x2, 3), "y": round(ny, 3), "z": round(z, 3)},
-                    })
-
                 if tiene_cargadores:
                     # Un cargador centrado (o dos a 30%/70% del bay si el frente
                     # es ancho) -- va ENCIMA de las vigas, en medio del rack,
