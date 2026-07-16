@@ -77,6 +77,20 @@ def _buscar_pieza_real(catalogo_piezas: list[dict], categorias: list[str], lado:
     return _sku_de(pool[0])
 
 
+# El campo "longitud_metros" del catalogo es la medida NOMINAL del producto
+# (la que usa ventas/catalogo), pero no siempre coincide con la geometria
+# real del .glb tal como la interpreta Three.js en el navegador -- para
+# LARGUERO_302X15.2_C14, catalogo dice 3.02m pero el bbox medido en vivo
+# (THREE.Box3, no trimesh -- trimesh dio una lectura distinta e incorrecta
+# para este GLB con compresion Draco) da 3.103m de largo real una vez
+# rotado. Sin esta correccion el larguero sobraba ~4cm de cada lado, fuera
+# de las cabeceras. Mientras el catalogo no traiga una medida ya verificada
+# contra el .glb real, se usan estas correcciones puntuales por SKU.
+_LONGITUD_REAL_GLB_M = {
+    "LARGUERO_302X15.2_C14": 3.103,
+}
+
+
 def _longitud_real(catalogo_piezas: list[dict], sku: str | None) -> float | None:
     """
     Longitud real (metros) de una pieza de catalogo por su SKU -- usada para
@@ -87,6 +101,8 @@ def _longitud_real(catalogo_piezas: list[dict], sku: str | None) -> float | None
     """
     if not sku:
         return None
+    if sku in _LONGITUD_REAL_GLB_M:
+        return _LONGITUD_REAL_GLB_M[sku]
     for p in catalogo_piezas or []:
         if _sku_de(p) == sku:
             longitud = p.get("longitud_metros")
