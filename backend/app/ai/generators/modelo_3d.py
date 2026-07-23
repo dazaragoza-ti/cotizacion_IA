@@ -116,11 +116,14 @@ def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm):
     cy1 = py1 + POSTE / 2
     cy2 = py2 + POSTE / 2
 
-    # Horizontales: en cada nivel del panel
+    # Horizontales: en cada nivel del panel, INCLUYENDO base y tope. Antes se
+    # excluían z=0 y z=altura_mm ("0 < z < altura_mm - 1") dejando el marco
+    # sin travesaño visible arriba -- el QA visual lo detectó comparando
+    # contra el kit de referencia real, que sí trae banda superior e
+    # inferior (además de la intermedia) soldadas de fábrica.
     for i in range(n_paneles + 1):
         z = i * paso
-        if 0 < z < altura_mm - 1:
-            meshes.append(_bar((cx, cy1, z), (cx, cy2, z), DIAG_TH, COL_AZUL))
+        meshes.append(_bar((cx, cy1, z), (cx, cy2, z), DIAG_TH, COL_AZUL))
 
     # Diagonales: alternando \ y / por panel
     for i in range(n_paneles):
@@ -177,19 +180,25 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
     meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo))
 
     # Largueros + cargadores + entrepaños por nivel (omitir nivel 0 = piso)
+    # nivel_z es la altura de la superficie de carga (donde se apoya la
+    # tarima) -- el larguero se construye COLGANDO de ahí hacia abajo
+    # (z0 = nivel_z - peralte, tope en nivel_z), no empezando en nivel_z y
+    # sobresaliendo hacia arriba como una mesa encima de los postes (defecto
+    # que el QA visual detectó comparando contra el kit de referencia real).
     larguero_x = x0
     larguero_w = frente
     espesor_larg = 72
     for nivel_z in niveles[1:]:
+        larguero_z0 = nivel_z - peralte
         # Larguero frontal
-        meshes.extend(construir_larguero(larguero_x, y0, nivel_z,
+        meshes.extend(construir_larguero(larguero_x, y0, larguero_z0,
                                           larguero_w, peralte, espesor_larg))
         # Larguero trasero
-        meshes.extend(construir_larguero(larguero_x, y0 + fondo - espesor_larg, nivel_z,
+        meshes.extend(construir_larguero(larguero_x, y0 + fondo - espesor_larg, larguero_z0,
                                           larguero_w, peralte, espesor_larg))
         # Cargador(es): 1 si frente <=242, 2 si >=272 (según catálogo PM)
         n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
-        carg_z = nivel_z + peralte - 30
+        carg_z = nivel_z - 30
         carg_y = y0 + espesor_larg
         carg_fondo_util = fondo - 2 * espesor_larg
         if n_cargs == 1:
@@ -202,7 +211,7 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
 
         # Entrepaño: superficie sobre el larguero (escalón)
         if con_entrepano:
-            ent_z = nivel_z + peralte - 5  # arriba del larguero
+            ent_z = nivel_z - 5  # arriba del larguero
             ent_y = y0 + espesor_larg
             ent_fondo = fondo - 2 * espesor_larg
             meshes.extend(construir_entrepano(larguero_x, ent_y, ent_z,
@@ -228,16 +237,19 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
         cx = x0 + i * frente
         meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo))
 
-    # Largueros, cargadores y entrepaños por cada bay
+    # Largueros, cargadores y entrepaños por cada bay -- nivel_z es la altura
+    # de la superficie de carga, el larguero cuelga de ahí hacia abajo
+    # (mismo fix que construir_modulo, ver ahí el porqué).
     for i in range(n_modulos):
         bx = x0 + i * frente
         bw = frente
         for nivel_z in niveles[1:]:
-            meshes.extend(construir_larguero(bx, y0, nivel_z, bw, peralte))
-            meshes.extend(construir_larguero(bx, y0 + fondo - espesor_larg, nivel_z,
+            larguero_z0 = nivel_z - peralte
+            meshes.extend(construir_larguero(bx, y0, larguero_z0, bw, peralte))
+            meshes.extend(construir_larguero(bx, y0 + fondo - espesor_larg, larguero_z0,
                                               bw, peralte))
             n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
-            carg_z = nivel_z + peralte - 30
+            carg_z = nivel_z - 30
             carg_y = y0 + espesor_larg
             carg_fondo_util = fondo - 2 * espesor_larg
             if n_cargs == 1:
@@ -250,7 +262,7 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
             if con_entrepano:
                 ent_y = y0 + espesor_larg
                 ent_fondo = fondo - 2 * espesor_larg
-                meshes.extend(construir_entrepano(bx, ent_y, nivel_z + peralte - 5,
+                meshes.extend(construir_entrepano(bx, ent_y, nivel_z - 5,
                                                     bw, ent_fondo, peralte=8))
     return meshes
 

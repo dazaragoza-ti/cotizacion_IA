@@ -28,7 +28,7 @@ class ModelosScreen extends StatelessWidget {
         Container(
           margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: AppColors.indigoLight, borderRadius: BorderRadius.circular(10)),
-          child: Text(state.message, style: const TextStyle(color: Color(0xFF1E3A8A), fontSize: 13)),
+          child: Text(state.message, style: const TextStyle(color: AppColors.indigoDark, fontSize: 13)),
         ),
       if (state is ModelosLoading) const AppShimmer()
       else if (state is ModelosLoaded && state.modelos.isEmpty)

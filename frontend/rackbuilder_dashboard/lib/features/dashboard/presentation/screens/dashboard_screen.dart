@@ -24,6 +24,23 @@ import "../../../arquitectura/presentation/screens/arquitectura_screen.dart";
 
 enum DashModule { analiticas, alimentar, draco, catalogo, historial, estadisticas, rag, arquitectura }
 
+/// Fuente única de verdad de icono/etiqueta por módulo — la usan sidebar,
+/// tablet rail y bottom nav para que ningún módulo quede fuera por listas
+/// mantenidas a mano por separado (pasaba antes: mobile/tablet ocultaban
+/// RAG, Arquitectura y Alimentar IA por completo).
+typedef DashModuleInfo = ({DashModule module, IconData icon, String shortLabel, String longLabel});
+
+const List<DashModuleInfo> kDashModules = [
+  (module: DashModule.analiticas,   icon: Icons.bar_chart,     shortLabel: "Métricas",     longLabel: "Métricas y Tokens"),
+  (module: DashModule.alimentar,    icon: Icons.psychology,    shortLabel: "IA",           longLabel: "Alimentar IA"),
+  (module: DashModule.draco,        icon: Icons.compress,      shortLabel: "Draco",        longLabel: "Optimizar Draco CAD"),
+  (module: DashModule.catalogo,     icon: Icons.cloud_upload,  shortLabel: "Catálogo",     longLabel: "Subir al Catálogo"),
+  (module: DashModule.historial,    icon: Icons.history,       shortLabel: "Historial",    longLabel: "Historial de Diseños"),
+  (module: DashModule.estadisticas, icon: Icons.insights,      shortLabel: "Stats",        longLabel: "Aprendizaje (Estadísticas)"),
+  (module: DashModule.rag,          icon: Icons.manage_search, shortLabel: "RAG",          longLabel: "Búsqueda RAG"),
+  (module: DashModule.arquitectura, icon: Icons.hub,           shortLabel: "Arquitectura", longLabel: "Arquitectura del Sistema"),
+];
+
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
   @override State<DashboardScreen> createState() => _DashboardScreenState();
@@ -147,6 +164,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 // ── Bottom Nav (móvil) ────────────────────────────────────────────────────────
+// Solo 3 accesos directos (los de uso más frecuente) + "Más" para el resto,
+// así cada botón tiene espacio suficiente para tocarse cómodo en pantallas
+// angostas. Antes se mostraban 5 módulos fijos y los otros 3 (Alimentar IA,
+// RAG, Arquitectura) eran directamente inalcanzables en móvil.
+const List<DashModule> _kBottomNavPrimarios = [
+  DashModule.analiticas, DashModule.catalogo, DashModule.historial,
+];
+
 class _BottomNav extends StatelessWidget {
   final DashModule module;
   final void Function(DashModule) onTap;
@@ -154,37 +179,73 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const items = [
-      (DashModule.analiticas, Icons.bar_chart,    "Métricas"),
-      (DashModule.draco,      Icons.compress,     "Draco"),
-      (DashModule.catalogo,   Icons.cloud_upload, "Catálogo"),
-      (DashModule.historial,  Icons.history,      "Historial"),
-      (DashModule.estadisticas, Icons.insights,   "Stats"),
-    ];
+    final primarios = kDashModules.where((m) => _kBottomNavPrimarios.contains(m.module)).toList();
+    final enMas = !_kBottomNavPrimarios.contains(module);
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
-      child: Row(children: items.map((item) {
-        final (mod, icon, label) = item;
-        final active = module == mod;
-        return Expanded(child: GestureDetector(
-          onTap: () => onTap(mod),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            color: Colors.transparent,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, size: 22, color: active ? AppColors.indigo : AppColors.textHint),
-              const SizedBox(height: 3),
-              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
-                  color: active ? AppColors.indigo : AppColors.textHint)),
-            ]),
-          ),
-        ));
-      }).toList()),
+      child: Row(children: [
+        ...primarios.map((item) => Expanded(child: _BottomNavItem(
+          icon: item.icon, label: item.shortLabel,
+          active: module == item.module,
+          onTap: () => onTap(item.module),
+        ))),
+        Expanded(child: _BottomNavItem(
+          icon: Icons.more_horiz, label: "Más",
+          active: enMas,
+          onTap: () => _abrirMas(context),
+        )),
+      ]),
     );
   }
+
+  void _abrirMas(BuildContext context) {
+    final resto = kDashModules.where((m) => !_kBottomNavPrimarios.contains(m.module)).toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: resto.map((item) {
+          final active = module == item.module;
+          return ListTile(
+            leading: Icon(item.icon, color: active ? AppColors.indigo : AppColors.slate),
+            title: Text(item.longLabel, style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: active ? AppColors.indigo : AppColors.slate,
+            )),
+            onTap: () { Navigator.pop(sheetCtx); onTap(item.module); },
+          );
+        }).toList()),
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _BottomNavItem({required this.icon, required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      color: Colors.transparent,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 22, color: active ? AppColors.indigo : AppColors.textHint),
+        const SizedBox(height: 3),
+        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
+            color: active ? AppColors.indigo : AppColors.textHint)),
+      ]),
+    ),
+  );
 }
 
 // ── Tablet Rail ───────────────────────────────────────────────────────────────
@@ -195,45 +256,40 @@ class _TabletRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const items = [
-      (DashModule.analiticas, Icons.bar_chart,    "Métricas"),
-      (DashModule.alimentar,  Icons.psychology,   "IA"),
-      (DashModule.draco,      Icons.compress,     "Draco"),
-      (DashModule.catalogo,   Icons.cloud_upload, "Catálogo"),
-      (DashModule.historial,  Icons.history,      "Historial"),
-      (DashModule.estadisticas, Icons.insights,   "Stats"),
-    ];
     return Container(
       width: 70,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(right: BorderSide(color: AppColors.border)),
       ),
-      child: Column(children: [
-        const SizedBox(height: 8),
-        ...items.map((item) {
-          final (mod, icon, label) = item;
-          final active = module == mod;
-          return GestureDetector(
-            onTap: () => onSwitch(mod),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: active ? AppColors.indigoLight : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
+      // Scroll en vez de altura fija: con los 8 módulos ya no garantizamos
+      // que quepan sin cortarse en tablets bajas (landscape chico).
+      child: SingleChildScrollView(
+        child: Column(children: [
+          const SizedBox(height: 8),
+          ...kDashModules.map((item) {
+            final active = module == item.module;
+            return GestureDetector(
+              onTap: () => onSwitch(item.module),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: active ? AppColors.indigoLight : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(item.icon, size: 20, color: active ? AppColors.indigo : AppColors.textHint),
+                  const SizedBox(height: 4),
+                  Text(item.shortLabel, textAlign: TextAlign.center, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600,
+                      color: active ? AppColors.indigo : AppColors.textHint)),
+                ]),
               ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(icon, size: 20, color: active ? AppColors.indigo : AppColors.textHint),
-                const SizedBox(height: 4),
-                Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600,
-                    color: active ? AppColors.indigo : AppColors.textHint)),
-              ]),
-            ),
-          );
-        }),
-      ]),
+            );
+          }),
+        ]),
+      ),
     );
   }
 }

@@ -35,6 +35,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Claude Code (local/personal, no compartir)
+.claude/settings.local.json
+.claude/worktrees/
+
 # IDE
 .vscode/
 .idea/

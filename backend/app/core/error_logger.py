@@ -10,7 +10,7 @@ log = logging.getLogger("error_logger")
 # (frontend/.../features/arquitectura/domain/nodo_arquitectura.dart).
 COMPONENTES_VALIDOS = {
     "fastapi", "claude", "rag", "graph", "engineering",
-    "generadores", "supabase", "promotion", "context_builder",
+    "generadores", "supabase", "promotion", "context_builder", "qa_visual",
 }
 
 

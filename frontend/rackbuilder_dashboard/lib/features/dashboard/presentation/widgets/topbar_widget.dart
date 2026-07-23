@@ -23,7 +23,7 @@ class TopbarWidget extends StatelessWidget {
         Container(
           width: mobile ? 36 : 44, height: mobile ? 36 : 44,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
+            gradient: const LinearGradient(colors: [AppColors.indigo, AppColors.indigoAccent]),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(Icons.show_chart, color: Colors.white, size: mobile ? 18 : 22),

@@ -10,15 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import shutil
 import tempfile
-import urllib.parse
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..ai.clients import claude_client, ventas_client
+from ..ai.clients import claude_client, ventas_client, qa_visual_client
 
 from ..ai.pipelines import pipeline
 
@@ -37,7 +35,7 @@ from .reglas_service import obtener_ultimo_diseno
 from . import ventas_service
 from ..clients import supabase
 from ..config import URL_FRONTEND
-from ..core import pipeline_tracer
+from ..core import pipeline_tracer, error_logger
 
 log = logging.getLogger("proyecto_pm_service")
 
@@ -247,11 +245,11 @@ async def generar_proyecto_pm(
             except Exception as e:
                 log.warning("No se pudo persistir langsmith_run_id (falta migracion 0004?): %s", e)
 
-            sb_url = os.getenv("SUPABASE_URL", "")
-            sb_key = os.getenv("SUPABASE_KEY", "")
-            encoded_url = urllib.parse.quote_plus(sb_url)
-            encoded_key = urllib.parse.quote_plus(sb_key)
-            resultado.link_visor_3d = f"{URL_FRONTEND}?sb_url={encoded_url}&sb_key={encoded_key}&session_id={session_id}"
+            # El visor (frontend/index.html) ya trae la key anon de Supabase
+            # hardcodeada como default -- es publica por diseno (protegida por
+            # RLS, no por ocultarla). El link solo necesita el session_id, que
+            # es lo unico que de verdad varia entre proyectos.
+            resultado.link_visor_3d = f"{URL_FRONTEND}?session_id={session_id}"
         except Exception as e:
             log.exception("No se pudo guardar en disenos_racks para el visor 3D: %s", e)
 
@@ -324,6 +322,32 @@ async def generar_proyecto_pm(
                 except Exception as e:
                     log.warning("no se pudo persistir %s: %s", p.name, e)
             resultado.archivos = moved
+
+            # QA visual: best-effort, nunca bloquea la entrega (ver AskUserQuestion
+            # respondida por el usuario -- un falso positivo no debe frenar una
+            # venta real). Si detecta algo, solo queda registrado para revisión.
+            try:
+                # Solo las 2 mas diagnosticas (perspectiva general + detalle de
+                # union) -- mandar las 5 hace que Groq rechace la llamada
+                # ("Too many images provided, this model supports up to 3") y
+                # ademas encarece de mas la revision de Claude sin aportar
+                # senal extra (planta/frontal/lateral son vistas ortograficas,
+                # menos utiles para juzgar defectos de ensamble que la
+                # perspectiva + el acercamiento).
+                nombres_diagnosticos = {"render_perspectiva.png", "render_modulo_detalle.png"}
+                imagenes_render = [p for p in moved if p.name in nombres_diagnosticos]
+                veredicto = await qa_visual_client.revisar_render(imagenes_render)
+                if not veredicto["ok"]:
+                    detalle = "; ".join(
+                        f"[{d['severidad']}] {d['descripcion']}" for d in veredicto["defectos"]
+                    )
+                    log.warning("QA visual detecto defecto(s) en %s: %s", proyecto.get("clave"), detalle)
+                    error_logger.registrar_error("qa_visual", f"Proyecto {proyecto.get('clave', '?')}: {detalle}")
+                    pipeline_tracer.emitir(solicitud_id, "qa_visual", f"Defecto(s) detectado(s): {detalle}", "error")
+                else:
+                    pipeline_tracer.emitir(solicitud_id, "qa_visual", "Render revisado, sin defectos", "completado")
+            except Exception as e:
+                log.warning("QA visual fallo, se omite (no bloquea entrega): %s", e)
 
             if not moved and not resultado.link_visor_3d:
                 extra = "No pude generar planos/renders (faltan dependencias en el servidor?)."

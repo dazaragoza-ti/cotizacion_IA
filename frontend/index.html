@@ -189,6 +189,15 @@
     <script>
         // --- 1. CONFIGURACIÓN DEL SISTEMA 3D (THREE.JS - TEMA CLARO) ---
         let scene, camera, renderer, controls, objectsGroup;
+        // Key anon de Supabase -- publica por diseno (Supabase la protege con
+        // Row Level Security, no ocultandola: https://supabase.com/docs/guides/api/api-keys).
+        // Antes viajaba como query param (?sb_url=...&sb_key=...) en el link que
+        // manda el bot de Telegram -- mismo nivel de exposicion real, pero se
+        // veia como una credencial filtrada en el historial del navegador/chat.
+        // Hardcodearla aqui (codigo publico de por si, en GitHub Pages) deja el
+        // link solo con el session_id, que es lo unico que de verdad varia.
+        const SUPABASE_URL_DEFAULT = "https://ltetbljizxngcwszyzmn.supabase.co";
+        const SUPABASE_ANON_KEY_DEFAULT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0ZXRibGppenhuZ2N3c3p5em1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMTc0MzMsImV4cCI6MjA5Nzg5MzQzM30.ThZMYsYyHv0eC2PxSV-NmqJySwSY3Y32tK8QrHEivaw";
         let supabaseClient = null;
         let targetSessionId = null; // Variable global para sincronizar por id de sesión
         let catalogoCache = new Map(); // Mapa de piezas (codigo_sku -> metadatos de DB)
@@ -642,10 +651,14 @@
                 session = session || hashParams.get('session_id');
             }
 
-            if (rawUrl && rawKey) {
-                const url = decodeURIComponent(rawUrl);
-                const key = decodeURIComponent(rawKey);
-                
+            // Links nuevos (proyecto_pm_service.py) solo mandan session_id --
+            // se usan las credenciales publicas por defecto. Los links viejos
+            // que ya traigan sb_url/sb_key (compartidos antes de este cambio)
+            // se siguen honrando tal cual.
+            const url = rawUrl ? decodeURIComponent(rawUrl) : (session ? SUPABASE_URL_DEFAULT : null);
+            const key = rawKey ? decodeURIComponent(rawKey) : (session ? SUPABASE_ANON_KEY_DEFAULT : null);
+
+            if (url && key) {
                 if (session) {
                     targetSessionId = session;
                     const sessionTag = document.getElementById('session-tag');

@@ -35,13 +35,18 @@ class RedArquitecturaPainter extends CustomPainter {
       if (a == Offset.zero || b == Offset.zero) continue;
 
       final resaltada = nodoSeleccionado != null && (nodoSeleccionado == c.desde || nodoSeleccionado == c.hacia);
+      final colorLinea = c.observabilidad
+          ? AppColors.purple
+          : (c.offline ? AppColors.textHint : AppColors.indigo);
       final lineaPaint = Paint()
-        ..color = (c.observabilidad ? AppColors.purple : AppColors.indigo)
-            .withValues(alpha: resaltada ? 0.9 : (c.observabilidad ? 0.25 : 0.35))
+        ..color = colorLinea.withValues(alpha: resaltada ? 0.9 : (c.observabilidad || c.offline ? 0.3 : 0.35))
         ..strokeWidth = resaltada ? 2.6 : 1.6
         ..style = PaintingStyle.stroke;
 
-      if (c.observabilidad) {
+      if (c.observabilidad || c.offline) {
+        // offline: misma linea punteada que observabilidad, pero neutra y sin
+        // pulso -- no representa datos fluyendo en vivo, sino una accion
+        // manual de un desarrollador (ej. Corrector 3D).
         _dibujarLineaPunteada(canvas, a, b, lineaPaint, dash: 5, gap: 4);
       } else {
         canvas.drawLine(a, b, lineaPaint);

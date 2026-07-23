@@ -278,3 +278,34 @@ class TokenChip extends StatelessWidget {
         style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
   );
 }
+
+// ── Confirm Dialog ────────────────────────────────────────────────────────────
+/// Diálogo de confirmación estándar para acciones destructivas (eliminar,
+/// descartar, etc.) — antes cada pantalla armaba su propio AlertDialog inline
+/// con estilos ligeramente distintos (ver catalogo_screen.dart).
+Future<bool> confirmarAccion(
+  BuildContext context, {
+  required String titulo,
+  required String mensaje,
+  String textoConfirmar = "Eliminar",
+  String textoCancelar = "Cancelar",
+  bool destructivo = true,
+}) async {
+  final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    title: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700)),
+    content: Text(mensaje),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(c, false), child: Text(textoCancelar)),
+      ElevatedButton(
+        onPressed: () => Navigator.pop(c, true),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: destructivo ? AppColors.red : AppColors.indigo,
+          foregroundColor: Colors.white,
+        ),
+        child: Text(textoConfirmar),
+      ),
+    ],
+  ));
+  return ok == true;
+}

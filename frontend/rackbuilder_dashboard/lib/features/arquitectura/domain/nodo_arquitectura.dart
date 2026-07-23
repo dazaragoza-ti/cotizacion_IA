@@ -30,7 +30,8 @@ class ConexionArquitectura {
   final String hacia;
   final String? etiqueta;
   final bool observabilidad; // true = LangSmith observando (linea punteada distinta)
-  const ConexionArquitectura(this.desde, this.hacia, {this.etiqueta, this.observabilidad = false});
+  final bool offline; // true = accion de un desarrollador fuera del flujo de produccion (linea punteada neutra, sin pulso)
+  const ConexionArquitectura(this.desde, this.hacia, {this.etiqueta, this.observabilidad = false, this.offline = false});
 }
 
 /// Un paso numerado dentro de uno de los dos flujos explicados debajo del
@@ -195,6 +196,32 @@ class ArquitecturaData {
       entradas: "JSON de cotizacion ya con precios reales + historial de compras del cliente (tabla clientes).",
       salidas: "Mensaje de Telegram con la propuesta comercial y el descuento aplicable, si hay uno.",
     ),
+    NodoArquitectura(
+      id: "qa_visual", label: "QA Visual\n(Render)", icon: Icons.visibility_outlined,
+      posicion: Offset(0.74, 0.65),
+      descripcion: "app/ai/clients/qa_visual_client.py: el tercer agente del sistema -- "
+          "razona sobre un dominio distinto (defectos visuales de ensamble) tanto del "
+          "proyectista tecnico como de Ventas. Mira los PNG ya generados por Generadores "
+          "y los compara contra las reglas de ensamble conocidas (banda del travesano, "
+          "largo real del larguero, etc.). Nunca bloquea la entrega -- si detecta algo, "
+          "solo queda registrado en Supabase para revision (un falso positivo no debe "
+          "frenar una venta real).",
+      capituloManual: "Cap. 7.12 - Dominio independiente que si justifica multi-agente",
+      entradas: "Imagenes PNG del render ya generado por Generadores.",
+      salidas: "Veredicto (ok / defectos detectados) registrado en sistema_errores si hay algo que revisar.",
+    ),
+    NodoArquitectura(
+      id: "corrector_3d", label: "Corrector 3D\n(Managed Agent)", icon: Icons.auto_fix_high,
+      posicion: Offset(0.90, 0.65),
+      descripcion: "El cuarto agente del sistema, y el unico que no corre por una solicitud "
+          "de cliente: es un Managed Agent de la plataforma de Anthropic (no LangGraph) que "
+          "un desarrollador lanza bajo demanda (managed_agent_corrector_run.py) en un sandbox "
+          "cloud con bash/read/write/edit. Prueba modelo_3d.py contra los ejemplos dorados, "
+          "corrige defectos de ensamble que encuentra y abre un Pull Request -- el cambio "
+          "nunca se aplica solo, siempre pasa por revision humana antes de mezclarse.",
+      entradas: "Ejemplos dorados (knowledge/ejemplos/*.json), validador_geometria.py y renders regenerados.",
+      salidas: "Fix en modelo_3d.py + Pull Request contra la rama josue para revision humana.",
+    ),
   ];
 
   static const conexiones = [
@@ -215,6 +242,9 @@ class ArquitecturaData {
     ConexionArquitectura("generadores", "ventas", etiqueta: "descuento + propuesta comercial"),
     ConexionArquitectura("ventas", "usuario", etiqueta: "propuesta comercial"),
     ConexionArquitectura("ventas", "supabase"),
+    ConexionArquitectura("generadores", "qa_visual", etiqueta: "revisa el render generado"),
+    ConexionArquitectura("qa_visual", "supabase", etiqueta: "registra defecto, si detecta uno"),
+    ConexionArquitectura("generadores", "corrector_3d", etiqueta: "un desarrollador lo lanza para corregir el generador", offline: true),
     ConexionArquitectura("langsmith", "claude", observabilidad: true),
     ConexionArquitectura("langsmith", "engineering", observabilidad: true),
     ConexionArquitectura("langsmith", "rag", observabilidad: true),
@@ -245,10 +275,14 @@ class ArquitecturaData {
         relacionados: ["langsmith"]),
     PasoFlujo(8, "generadores", "Se generan los entregables",
         "PDF de planos, XLSX de despiece y cotizacion, modelo 3D GLB/DAE y renders PNG."),
-    PasoFlujo(9, "ventas", "Cotizador IA calcula el descuento y redacta la propuesta",
+    PasoFlujo(9, "qa_visual", "QA Visual revisa el render generado",
+        "Mira los PNG contra las reglas de ensamble conocidas. Best-effort: si detecta un "
+        "defecto solo lo registra para revision, nunca bloquea la entrega al cliente.",
+        relacionados: ["supabase"]),
+    PasoFlujo(10, "ventas", "Cotizador IA calcula el descuento y redacta la propuesta",
         "Identifica al cliente, revisa su historial de compras y aplica reglas de descuento "
         "deterministas; Claude solo redacta el texto persuasivo con ese resultado ya calculado."),
-    PasoFlujo(10, "usuario", "El cliente recibe la respuesta",
+    PasoFlujo(11, "usuario", "El cliente recibe la respuesta",
         "Archivos + cotizacion tecnica + propuesta comercial, todo en el mismo hilo de Telegram."),
   ];
 
@@ -272,5 +306,32 @@ class ArquitecturaData {
     PasoFlujo(6, "context_builder", "La proxima solicitud ya usa lo aprendido",
         "El Context Builder inyecta la relacion (o la regla ya promovida) directo en el prompt de Claude, sin que nadie la repita manualmente.",
         relacionados: ["supabase", "rag", "claude"]),
+  ];
+
+  /// Flujo 3: como el Corrector 3D encuentra y arregla un defecto de ensamble
+  /// en modelo_3d.py -- a diferencia de los otros dos flujos, este no lo
+  /// dispara un cliente sino un desarrollador, bajo demanda, y nunca toca
+  /// produccion directamente (todo cambio pasa por PR).
+  static const flujoCorreccion3D = [
+    PasoFlujo(1, "corrector_3d", "Un desarrollador lanza el corrector",
+        "managed_agent_corrector_run.py abre una sesion del Managed Agent contra el repo; "
+        "el agente toma un ejemplo dorado de knowledge/ejemplos/*.json como caso de prueba."),
+    PasoFlujo(2, "corrector_3d", "Corre el validador geometrico",
+        "validador_geometria.py (validar_modulo + validar_corrida) revisa las coordenadas del "
+        "mesh en busca de colisiones o huecos, con precision milimetrica -- mas preciso que la vista."),
+    PasoFlujo(3, "generadores", "Regenera renders y compara contra la referencia",
+        "Vuelve a correr modelo_3d.py (el mismo pipeline que produccion) y compara el resultado "
+        "contra las imagenes de un kit real ya armado correctamente.",
+        relacionados: ["corrector_3d"]),
+    PasoFlujo(4, "corrector_3d", "Confirma la correccion contra las reglas de ingenieria",
+        "Antes de tocar codigo, valida que el fix no viole una regla real de "
+        "knowledge/tecnico/postes_y_cabeceras.md (cargas, alturas estandar, cross-bracing)."),
+    PasoFlujo(5, "generadores", "Edita modelo_3d.py con el cambio minimo",
+        "Corrige la causa geometrica real -- nunca oculta el sintoma moviendo una tolerancia -- "
+        "y vuelve a correr validador y renders para confirmar que no rompio nada mas.",
+        relacionados: ["corrector_3d"]),
+    PasoFlujo(6, "corrector_3d", "Abre un Pull Request para revision humana",
+        "Commit + push a una rama fix/<algo> y abre PR contra josue (nunca contra main) -- "
+        "el cambio nunca se aplica solo, siempre pasa por revision humana antes de mezclarse."),
   ];
 }

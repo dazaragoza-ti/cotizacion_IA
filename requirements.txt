@@ -17,6 +17,7 @@ reportlab==4.2.5
 numpy
 scipy
 trimesh
+DracoPy      # decodificar KHR_draco_mesh_compression al leer .glb (trimesh solo trae soporte de escritura)
 matplotlib
 pillow
 pycollada    # opcional: exportar DAE (importable en SketchUp)

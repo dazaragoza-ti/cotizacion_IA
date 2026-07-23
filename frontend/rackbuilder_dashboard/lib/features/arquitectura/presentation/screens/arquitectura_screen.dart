@@ -70,6 +70,7 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         _leyenda(AppColors.red, "Fallo reciente (ver detalle abajo)"),
         _leyendaLinea(AppColors.indigo, "Flujo de datos"),
         _leyendaLinea(AppColors.purple, "Observabilidad (LangSmith), punteado"),
+        _leyendaLinea(AppColors.textHint, "Accion manual de un desarrollador, punteado"),
         _leyendaAnillo(AppColors.cyan, "Solicitud real en curso ahora mismo"),
       ]),
       const SizedBox(height: 16),
@@ -116,6 +117,12 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
         titulo: "Flujo 2 — Cómo aprende el sistema",
         subtitulo: "De una corrección manual a una regla reutilizable",
         pasos: ArquitecturaData.flujoAprendizaje,
+      ),
+      const SizedBox(height: 16),
+      _panelFlujo(
+        titulo: "Flujo 3 — Cómo se corrige el generador 3D",
+        subtitulo: "Un desarrollador lanza al Corrector 3D bajo demanda, nunca por una solicitud de cliente",
+        pasos: ArquitecturaData.flujoCorreccion3D,
       ),
     ]),
   );

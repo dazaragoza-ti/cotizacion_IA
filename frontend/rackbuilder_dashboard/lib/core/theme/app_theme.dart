@@ -10,6 +10,7 @@ class AppColors {
   static const textSecond  = Color(0xFF64748B);
   static const textHint    = Color(0xFF94A3B8);
   static const indigo      = Color(0xFF4F46E5);
+  static const indigoAccent= Color(0xFF6366F1);
   static const indigoDark  = Color(0xFF4338CA);
   static const indigoLight = Color(0xFFEEF2FF);
   static const indigoBorder= Color(0xFFC7D2FE);

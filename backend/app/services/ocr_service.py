@@ -6,7 +6,8 @@ from io import BytesIO
 
 import fitz  # PyMuPDF
 from PIL import Image
-from ..clients import ocr_reader, groq_client
+from .. import clients as _clients
+from ..clients import groq_client
 
 log = logging.getLogger("ocr_service")
 
@@ -17,7 +18,9 @@ def extraer_texto_pdf(file_path: str) -> str:
 
 
 def extraer_texto_imagen(file_path: str) -> str:
-    return " ".join(ocr_reader.readtext(file_path, detail=0))
+    # _clients.ocr_reader dispara el __getattr__ perezoso de clients.py --
+    # recién aquí se carga easyocr, no al importar este módulo.
+    return " ".join(_clients.ocr_reader.readtext(file_path, detail=0))
 
 
 def transcribir_audio_groq(file_path: str) -> str:
