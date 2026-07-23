@@ -85,11 +85,15 @@ DIAG_TH = 18      # mm — solera 1/8"x1" diagonal (~25mm visual)
 FRENTES_CON_2_CARGADORES = (2804, 3104)
 
 
-def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm):
+def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm, niveles=None, peralte_mm=0):
     """Cabecera PM: 2 postes verticales + X-bracing en zigzag + placas base.
 
     Origen (x0, y0): esquina inferior-izquierda de la cabecera.
     Postes alineados en X = x0 a x0+POSTE, separados en Y por fondo_mm.
+
+    `niveles`/`peralte_mm`: alturas de carga y peralte del larguero. Se usan
+    para anclar el enrejado a los niveles y evitar que una banda del marco
+    caiga dentro de un larguero (ver más abajo).
     """
     meshes = []
     # Posición postes
@@ -106,34 +110,55 @@ def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm):
     meshes.append(_box(px - pad, py1 - pad, -PLACA_H, PLACA, PLACA, PLACA_H, COL_PLACA))
     meshes.append(_box(px - pad, py2 - pad, -PLACA_H, PLACA, PLACA, PLACA_H, COL_PLACA))
 
-    # Cross-bracing horizontal cada cierta altura (mejora estabilidad y look real)
-    # Patrón típico PM: travesaños horizontales + diagonales en X cada ~60-80 cm
-    n_paneles = max(3, int(altura_mm / 700))
-    paso = altura_mm / n_paneles
-
     # Centros de los postes para conectar barras
     cx = px + POSTE / 2
     cy1 = py1 + POSTE / 2
     cy2 = py2 + POSTE / 2
 
-    # Horizontales: en cada nivel del panel, INCLUYENDO base y tope. Antes se
-    # excluían z=0 y z=altura_mm ("0 < z < altura_mm - 1") dejando el marco
-    # sin travesaño visible arriba -- el QA visual lo detectó comparando
-    # contra el kit de referencia real, que sí trae banda superior e
-    # inferior (además de la intermedia) soldadas de fábrica.
-    for i in range(n_paneles + 1):
-        z = i * paso
-        meshes.append(_bar((cx, cy1, z), (cx, cy2, z), DIAG_TH, COL_AZUL))
+    # Cross-bracing (travesaños horizontales + diagonales en zigzag).
+    #
+    # Los vértices del enrejado se ANCLAN a los niveles de carga en vez de
+    # repartirse uniformemente por la altura. Antes los nodos caían en
+    # i*altura/n_paneles, ignorando dónde van los largueros; cuando una banda
+    # (o el punto medio de una diagonal, que es lo que "ve" el validador como
+    # un travesaño a esa altura) coincidía con un nivel, se cruzaba con el
+    # larguero -- viola la regla 1 de renderizador.md y lo detectan tanto el
+    # QA visual como validador_geometria. Al usar los niveles como vértices,
+    # el punto medio de cada diagonal cae SIEMPRE en el hueco entre dos
+    # largueros (nunca dentro del peralte de uno). El espaciado de la ficha
+    # técnica (§6, "aproximadamente cada 60-80 cm") es una guía, no una cota
+    # rígida, así que los huecos altos se subdividen para no alejarse de
+    # ~700 mm de panel.
+    niveles = niveles or [0, altura_mm]
+    puntos = sorted({0.0, float(altura_mm)}
+                    | {float(z) for z in niveles if 0 < z < altura_mm})
+    nodos = []
+    for a, b in zip(puntos[:-1], puntos[1:]):
+        n_sub = max(1, round((b - a) / 700))
+        for j in range(n_sub):
+            nodos.append(a + j * (b - a) / n_sub)
+    nodos.append(float(altura_mm))
+    nodos = sorted(set(nodos))
 
-    # Diagonales: alternando \ y / por panel
-    for i in range(n_paneles):
-        z_bot = i * paso
-        z_top = (i + 1) * paso
+    # Bandas ocupadas por el peralte de cada larguero (el larguero cuelga de
+    # nivel_z hacia abajo: z = [nivel - peralte, nivel]).
+    bandas = [(z - peralte_mm, z) for z in niveles if 0 < z <= altura_mm]
+
+    def _choca_larguero(z):
+        return any(b0 - DIAG_TH < z < b1 + DIAG_TH for b0, b1 in bandas)
+
+    # Horizontales: base y tope SIEMPRE (el kit real trae banda superior e
+    # inferior soldadas de fábrica, además de las intermedias); los nodos
+    # intermedios sólo si no chocan con el peralte de un larguero.
+    for z in nodos:
+        if z <= 0 or z >= altura_mm - 1e-6 or not _choca_larguero(z):
+            meshes.append(_bar((cx, cy1, z), (cx, cy2, z), DIAG_TH, COL_AZUL))
+
+    # Diagonales: alternando \ y / entre nodos consecutivos.
+    for i, (z_bot, z_top) in enumerate(zip(nodos[:-1], nodos[1:])):
         if i % 2 == 0:
-            # \
             meshes.append(_bar((cx, cy1, z_bot), (cx, cy2, z_top), DIAG_TH, COL_AZUL))
         else:
-            # /
             meshes.append(_bar((cx, cy2, z_bot), (cx, cy1, z_top), DIAG_TH, COL_AZUL))
 
     return meshes
@@ -171,13 +196,13 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
     meshes = []
 
     # Cabecera izquierda en x=0
-    meshes.extend(construir_cabecera_pm(x0, y0, altura, fondo))
+    meshes.extend(construir_cabecera_pm(x0, y0, altura, fondo, niveles, peralte))
     # Cabecera derecha en x=frente -- frente_mm es la distancia real entre
     # postes (coincide con la longitud del larguero de catalogo, ej. "LARGUERO
     # 1894MM"), misma convencion que ya usa adaptador_visor.py para el visor
     # web. Antes se restaba POSTE aqui, dejando el modulo ~73mm mas angosto
     # de lo real (y el error se acumulaba por cada bay en una corrida).
-    meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo))
+    meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo, niveles, peralte))
 
     # Largueros + cargadores + entrepaños por nivel (omitir nivel 0 = piso)
     # nivel_z es la altura de la superficie de carga (donde se apoya la
@@ -235,7 +260,7 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
     # por cada bay adicional en corridas largas).
     for i in range(n_modulos + 1):
         cx = x0 + i * frente
-        meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo))
+        meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo, niveles, peralte))
 
     # Largueros, cargadores y entrepaños por cada bay -- nivel_z es la altura
     # de la superficie de carga, el larguero cuelga de ahí hacia abajo
