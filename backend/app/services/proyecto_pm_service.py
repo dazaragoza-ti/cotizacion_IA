@@ -45,7 +45,7 @@ from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
 from . import ventas_service
 from . import jobs_pipeline
-from ..clients import supabase
+from ..clients import supabase_service
 from ..config import URL_FRONTEND
 from ..core import pipeline_tracer, error_logger
 
@@ -325,7 +325,7 @@ async def generar_proyecto_pm(
             comentario_historial = f"[{clave_proyecto}] {descripcion}" if clave_proyecto else descripcion
             historial_comentarios = [*historial_previo, comentario_historial]
 
-            supabase.table("disenos_racks").insert({
+            supabase_service.table("disenos_racks").insert({
                 "vendedor_id": tg_username or tg_full_name or str(tg_user_id),
                 "session_id": session_id,
                 "solicitud_original": descripcion,
@@ -337,7 +337,7 @@ async def generar_proyecto_pm(
             }).execute()
 
             try:
-                supabase.table("disenos_racks").update({
+                supabase_service.table("disenos_racks").update({
                     "langsmith_run_id": str(langsmith_run_id),
                 }).eq("session_id", session_id).eq("version_actual", proxima_version).execute()
             except Exception as e:
