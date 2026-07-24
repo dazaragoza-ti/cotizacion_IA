@@ -145,6 +145,9 @@ este formato exacto:
 - LRS7355 reemplaza_por LRS7360 (confidence=0.87)
 ```
 
+Además, `_bloque_reglas_armado()` (vía `consultar_reglas_armado`) inyecta las
+filas activas de `reglas_armado` — incluidas las promovidas a "permanente" —
+para que el proyectista las vea en el prompt extendido.
 **Pasos:**
 1. Asegúrate de que la relación `LRS7355 reemplaza_por LRS7360` ya tiene
    `confidence >= 0.5` en `knowledge_edges` (repite correcciones si hace
@@ -168,14 +171,16 @@ Ruta: módulo "RAG" del mismo dashboard Flutter
 **Pasos:**
 1. Entra al módulo RAG, botón "Sincronizar" (dispara `POST /rag/sync`,
    corre en segundo plano — el indicador de "en progreso" consulta `GET
-   /rag/sync/status`).
+   /rag/sync/status`). Indexa catálogo, correcciones **y** fichas técnicas
+   locales (`backend/app/ai/knowledge/tecnico/` → chunks `tipo=manual`).
 2. Espera a que termine (o revisa `knowledge_sync.en_progreso` vía el
    status endpoint).
 3. En el panel "Buscar", escribe un texto relacionado con una corrección
-   reciente (por ejemplo, parte de la `descripcion_error`).
+   reciente (por ejemplo, parte de la `descripcion_error`), o una ficha
+   (`GET /rag/search?q=capacidad+poste&tipo=manual`).
 4. **Verificación:** los resultados deben incluir la corrección indexada
-   (con su `tipo = 'correccion'`), confirmando que la corrección quedó
-   buscable semánticamente y no solo como fila cruda en la tabla.
+   (con su `tipo = 'correccion'`) o el fragmento de ficha (`tipo = 'manual'`),
+   confirmando que quedó buscable semánticamente.
 
 ---
 

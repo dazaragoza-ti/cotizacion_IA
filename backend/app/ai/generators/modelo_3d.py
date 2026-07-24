@@ -2,14 +2,17 @@
 Generador 3D de proyectos de rack PM La Piedad — versión 2.
 
 Construye un modelo 3D con proporciones reales del catálogo PM:
-- Postes 73x73 mm (poste gota carga pesada)
+- Postes 73x73 mm (carga pesada) o 38x38 mm (carga ligera)
 - Largueros con peralte real (100/125/150 mm) y grosor de lámina
 - X-bracing simétrica en cabecera
 - Entrepaños visibles en cada nivel
-- Cargadores delgados
+- Cargadores (solo carga pesada; ligera usa tensores en catálogo)
 
 Exporta OBJ, DAE (COLLADA, importable directo en SketchUp) y GLB,
 más renders ortográficos e isométrico desde matplotlib.
+
+Limitación: geometría real solo para rack **selectivo**. Cantilever /
+entrepiso generan stubs PNG con aviso explícito (no inventan geometría).
 """
 
 import json
@@ -29,6 +32,7 @@ COL_NARANJA = (0.95, 0.40, 0.05, 1.0)
 COL_GRIS = (0.45, 0.45, 0.48, 1.0)
 COL_ENTREPANO = (0.85, 0.45, 0.20, 1.0)  # naranja más claro
 COL_PLACA = (0.20, 0.20, 0.22, 1.0)
+COL_SUELO = (0.92, 0.93, 0.94, 1.0)
 
 
 def _box(x, y, z, dx, dy, dz, color):
@@ -71,8 +75,12 @@ def _bar(p0, p1, thickness, color):
     return cyl
 
 
-POSTE = 73        # mm — dimensión real del poste gota carga pesada
-PLACA = 100       # mm — placa base
+POSTE_PESADA = 73   # mm — poste gota carga pesada
+POSTE_LIGERA = 38   # mm — poste gota carga ligera
+POSTE = POSTE_PESADA  # alias compat (validador / callers externos)
+PLACA_PESADA = 100
+PLACA_LIGERA = 70
+PLACA = PLACA_PESADA
 PLACA_H = 10
 DIAG_TH = 18      # mm — solera 1/8"x1" diagonal (~25mm visual)
 
@@ -84,36 +92,63 @@ DIAG_TH = 18      # mm — solera 1/8"x1" diagonal (~25mm visual)
 # quedaba inconsistente con la regla real documentada/validada).
 FRENTES_CON_2_CARGADORES = (2804, 3104)
 
+TIPOS_SIN_GEOMETRIA = ("cantilever", "entrepiso", "mezzanine", "mezanine", "mezzanín")
 
-def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm, niveles=None, peralte_mm=0):
+
+def es_carga_ligera(datos: dict) -> bool:
+    """True si especificación/memoria indican carga ligera gota."""
+    spec = (datos.get("especificacion") or "").lower()
+    tipo_layout = ((datos.get("layout") or {}).get("tipo") or "").lower()
+    memoria_tc = ((datos.get("memoria") or {}).get("tipo_carga") or "").lower()
+    return "ligera" in " ".join([spec, tipo_layout, memoria_tc])
+
+
+def poste_mm_de(datos: dict) -> int:
+    return POSTE_LIGERA if es_carga_ligera(datos) else POSTE_PESADA
+
+
+def tipo_sistema(datos: dict) -> str:
+    return str((datos.get("layout") or {}).get("tipo") or "Selectivo")
+
+
+def geometria_selectiva_soportada(datos: dict) -> bool:
+    """Solo selectivo tiene geometría real en este generador."""
+    t = tipo_sistema(datos).lower()
+    return not any(k in t for k in TIPOS_SIN_GEOMETRIA)
+
+
+def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm, niveles=None, peralte_mm=0,
+                          poste_mm=None):
     """Cabecera PM: 2 postes verticales + X-bracing en zigzag + placas base.
 
     Origen (x0, y0): esquina inferior-izquierda de la cabecera.
-    Postes alineados en X = x0 a x0+POSTE, separados en Y por fondo_mm.
+    Postes alineados en X = x0 a x0+poste, separados en Y por fondo_mm.
 
     `niveles`/`peralte_mm`: alturas de carga y peralte del larguero. Se usan
     para anclar el enrejado a los niveles y evitar que una banda del marco
     caiga dentro de un larguero (ver más abajo).
     """
+    poste = POSTE if poste_mm is None else int(poste_mm)
+    placa = PLACA_LIGERA if poste <= POSTE_LIGERA + 2 else PLACA_PESADA
     meshes = []
     # Posición postes
     px = x0
     py1 = y0
-    py2 = y0 + fondo_mm - POSTE
+    py2 = y0 + fondo_mm - poste
 
     # Postes verticales (azul)
-    meshes.append(_box(px, py1, 0, POSTE, POSTE, altura_mm, COL_AZUL))
-    meshes.append(_box(px, py2, 0, POSTE, POSTE, altura_mm, COL_AZUL))
+    meshes.append(_box(px, py1, 0, poste, poste, altura_mm, COL_AZUL))
+    meshes.append(_box(px, py2, 0, poste, poste, altura_mm, COL_AZUL))
 
     # Placas base (debajo de cada poste)
-    pad = (PLACA - POSTE) / 2
-    meshes.append(_box(px - pad, py1 - pad, -PLACA_H, PLACA, PLACA, PLACA_H, COL_PLACA))
-    meshes.append(_box(px - pad, py2 - pad, -PLACA_H, PLACA, PLACA, PLACA_H, COL_PLACA))
+    pad = (placa - poste) / 2
+    meshes.append(_box(px - pad, py1 - pad, -PLACA_H, placa, placa, PLACA_H, COL_PLACA))
+    meshes.append(_box(px - pad, py2 - pad, -PLACA_H, placa, placa, PLACA_H, COL_PLACA))
 
     # Centros de los postes para conectar barras
-    cx = px + POSTE / 2
-    cy1 = py1 + POSTE / 2
-    cy2 = py2 + POSTE / 2
+    cx = px + poste / 2
+    cy1 = py1 + poste / 2
+    cy2 = py2 + poste / 2
 
     # Cross-bracing (travesaños horizontales + diagonales en zigzag).
     #
@@ -193,16 +228,20 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
     altura = L["altura_total_mm"]
     niveles = L["niveles"]
     peralte = L.get("peralte_larguero_mm", 100)
+    poste = poste_mm_de(datos)
+    ligera = es_carga_ligera(datos)
     meshes = []
 
     # Cabecera izquierda en x=0
-    meshes.extend(construir_cabecera_pm(x0, y0, altura, fondo, niveles, peralte))
+    meshes.extend(construir_cabecera_pm(x0, y0, altura, fondo, niveles, peralte,
+                                        poste_mm=poste))
     # Cabecera derecha en x=frente -- frente_mm es la distancia real entre
     # postes (coincide con la longitud del larguero de catalogo, ej. "LARGUERO
     # 1894MM"), misma convencion que ya usa adaptador_visor.py para el visor
     # web. Antes se restaba POSTE aqui, dejando el modulo ~73mm mas angosto
     # de lo real (y el error se acumulaba por cada bay en una corrida).
-    meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo, niveles, peralte))
+    meshes.extend(construir_cabecera_pm(x0 + frente, y0, altura, fondo, niveles,
+                                        peralte, poste_mm=poste))
 
     # Largueros + cargadores + entrepaños por nivel (omitir nivel 0 = piso)
     # nivel_z es la altura de la superficie de carga (donde se apoya la
@@ -212,7 +251,8 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
     # que el QA visual detectó comparando contra el kit de referencia real).
     larguero_x = x0
     larguero_w = frente
-    espesor_larg = 72
+    # Visual: larguero ~poste en profundidad; ligera es más delgado
+    espesor_larg = max(40, poste - 1) if ligera else 72
     for nivel_z in niveles[1:]:
         larguero_z0 = nivel_z - peralte
         # Larguero frontal
@@ -221,18 +261,19 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
         # Larguero trasero
         meshes.extend(construir_larguero(larguero_x, y0 + fondo - espesor_larg, larguero_z0,
                                           larguero_w, peralte, espesor_larg))
-        # Cargador(es): 1 si frente <=242, 2 si >=272 (según catálogo PM)
-        n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
-        carg_z = nivel_z - 30
-        carg_y = y0 + espesor_larg
-        carg_fondo_util = fondo - 2 * espesor_larg
-        if n_cargs == 1:
-            cx = x0 + frente / 2 - 30
-            meshes.extend(construir_cargador(cx, carg_y, carg_z, carg_fondo_util))
-        else:
-            for fr in [0.30, 0.70]:
-                cx = x0 + frente * fr - 30
+        # Cargadores solo en carga pesada (ligera usa tensores en catálogo)
+        if not ligera:
+            n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
+            carg_z = nivel_z - 30
+            carg_y = y0 + espesor_larg
+            carg_fondo_util = fondo - 2 * espesor_larg
+            if n_cargs == 1:
+                cx = x0 + frente / 2 - 30
                 meshes.extend(construir_cargador(cx, carg_y, carg_z, carg_fondo_util))
+            else:
+                for fr in [0.30, 0.70]:
+                    cx = x0 + frente * fr - 30
+                    meshes.extend(construir_cargador(cx, carg_y, carg_z, carg_fondo_util))
 
         # Entrepaño: superficie sobre el larguero (escalón)
         if con_entrepano:
@@ -252,7 +293,9 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
     altura = L["altura_total_mm"]
     niveles = L["niveles"]
     peralte = L.get("peralte_larguero_mm", 100)
-    espesor_larg = 72
+    poste = poste_mm_de(datos)
+    ligera = es_carga_ligera(datos)
+    espesor_larg = max(40, poste - 1) if ligera else 72
     meshes = []
 
     # Cabeceras: n+1, espaciadas exactamente frente_mm (misma convencion que
@@ -260,7 +303,8 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
     # por cada bay adicional en corridas largas).
     for i in range(n_modulos + 1):
         cx = x0 + i * frente
-        meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo, niveles, peralte))
+        meshes.extend(construir_cabecera_pm(cx, y0, altura, fondo, niveles, peralte,
+                                            poste_mm=poste))
 
     # Largueros, cargadores y entrepaños por cada bay -- nivel_z es la altura
     # de la superficie de carga, el larguero cuelga de ahí hacia abajo
@@ -270,20 +314,21 @@ def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
         bw = frente
         for nivel_z in niveles[1:]:
             larguero_z0 = nivel_z - peralte
-            meshes.extend(construir_larguero(bx, y0, larguero_z0, bw, peralte))
+            meshes.extend(construir_larguero(bx, y0, larguero_z0, bw, peralte, espesor_larg))
             meshes.extend(construir_larguero(bx, y0 + fondo - espesor_larg, larguero_z0,
-                                              bw, peralte))
-            n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
-            carg_z = nivel_z - 30
-            carg_y = y0 + espesor_larg
-            carg_fondo_util = fondo - 2 * espesor_larg
-            if n_cargs == 1:
-                meshes.extend(construir_cargador(bx + bw / 2 - 30, carg_y, carg_z,
-                                                  carg_fondo_util))
-            else:
-                for fr in [0.30, 0.70]:
-                    meshes.extend(construir_cargador(bx + bw * fr - 30, carg_y, carg_z,
+                                              bw, peralte, espesor_larg))
+            if not ligera:
+                n_cargs = 2 if frente in FRENTES_CON_2_CARGADORES else 1
+                carg_z = nivel_z - 30
+                carg_y = y0 + espesor_larg
+                carg_fondo_util = fondo - 2 * espesor_larg
+                if n_cargs == 1:
+                    meshes.extend(construir_cargador(bx + bw / 2 - 30, carg_y, carg_z,
                                                       carg_fondo_util))
+                else:
+                    for fr in [0.30, 0.70]:
+                        meshes.extend(construir_cargador(bx + bw * fr - 30, carg_y, carg_z,
+                                                          carg_fondo_util))
             if con_entrepano:
                 ent_y = y0 + espesor_larg
                 ent_fondo = fondo - 2 * espesor_larg
@@ -327,14 +372,72 @@ def construir_seccion_representativa(datos, n_corridas_rep=2, mods_por_corrida_r
 
 # ============= RENDERS =============
 
-def _render(scene_mesh, vista, titulo, salida):
-    """Renderiza una vista con matplotlib 3D, proporciones reales."""
+def _meta_dims(datos: dict) -> dict:
+    L = datos.get("layout") or {}
+    return {
+        "frente": L.get("frente_mm"),
+        "fondo": L.get("fondo_mm"),
+        "altura": L.get("altura_total_mm"),
+        "pasillo": L.get("pasillo_mm"),
+        "niveles": L.get("niveles") or [],
+        "poste": poste_mm_de(datos),
+        "tipo": tipo_sistema(datos),
+        "carga": (datos.get("memoria") or {}).get("tipo_carga")
+                 or ("Carga ligera gota" if es_carga_ligera(datos) else "Carga pesada gota"),
+        "clave": datos.get("clave", ""),
+    }
+
+
+def _pie_info(meta: dict) -> str:
+    partes = [
+        f"Poste {meta['poste']} mm",
+        f"{meta['carga']}",
+        f"Tipo: {meta['tipo']}",
+    ]
+    if meta.get("frente"):
+        partes.append(f"Frente {meta['frente']} mm")
+    if meta.get("fondo"):
+        partes.append(f"Fondo {meta['fondo']} mm")
+    if meta.get("altura"):
+        partes.append(f"Altura {meta['altura']} mm")
+    n_niv = max(0, len(meta.get("niveles") or []) - 1)
+    if n_niv:
+        partes.append(f"{n_niv} nivel(es)")
+    return "  ·  ".join(partes)
+
+
+def _render_stub(salida, titulo: str, mensaje: str, meta: dict | None = None):
+    """PNG honesto cuando no hay geometría real (cantilever/entrepiso)."""
+    fig, ax = plt.subplots(figsize=(11, 7.5), dpi=140, facecolor="white")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    ax.add_patch(plt.Rectangle((0.08, 0.22), 0.84, 0.55,
+                                fill=True, facecolor="#FFF5F5",
+                                edgecolor="#B00020", linewidth=1.5))
+    ax.text(0.5, 0.62, titulo, ha="center", va="center",
+            fontsize=14, weight="bold", color="#303030", wrap=True)
+    ax.text(0.5, 0.48, mensaje, ha="center", va="center",
+            fontsize=11, color="#B00020", wrap=True)
+    if meta:
+        ax.text(0.5, 0.12, _pie_info(meta), ha="center", va="center",
+                fontsize=8, color="#505050")
+    fig.savefig(salida, dpi=140, bbox_inches="tight", facecolor="white",
+                pad_inches=0.15)
+    plt.close(fig)
+    print(f"Stub render: {salida}")
+
+
+def _render(scene_mesh, vista, titulo, salida, meta: dict | None = None):
+    """Renderiza una vista con matplotlib 3D, proporciones reales + pie informativo."""
     vertices = scene_mesh.vertices
     faces = scene_mesh.faces
     colors = scene_mesh.visual.face_colors / 255.0
     mn = vertices.min(axis=0)
     mx = vertices.max(axis=0)
     rng = mx - mn
+    # Evitar división por cero en geometrías degeneradas
+    rng = np.where(rng < 1e-3, 1.0, rng)
 
     if vista == "perspectiva":
         w, h = 11, 7.5
@@ -361,6 +464,18 @@ def _render(scene_mesh, vista, titulo, salida):
                             edgecolors=(0, 0, 0, 0.12), linewidths=0.15)
     ax.add_collection3d(poly)
 
+    # Suelo de referencia (claridad de escala / apoyo visual)
+    suelo_z = mn[2] - max(5.0, rng[2] * 0.01)
+    sx0, sx1 = mn[0] - rng[0] * 0.02, mx[0] + rng[0] * 0.02
+    sy0, sy1 = mn[1] - rng[1] * 0.02, mx[1] + rng[1] * 0.02
+    suelo = [
+        [[sx0, sy0, suelo_z], [sx1, sy0, suelo_z],
+         [sx1, sy1, suelo_z], [sx0, sy1, suelo_z]]
+    ]
+    ax.add_collection3d(Poly3DCollection(
+        suelo, facecolors=[COL_SUELO], edgecolors=(0.7, 0.7, 0.72, 0.4),
+        linewidths=0.3, alpha=0.55))
+
     pad = 0.03
     ax.set_xlim(mn[0] - rng[0] * pad, mx[0] + rng[0] * pad)
     ax.set_ylim(mn[1] - rng[1] * pad, mx[1] + rng[1] * pad)
@@ -377,71 +492,132 @@ def _render(scene_mesh, vista, titulo, salida):
         ax.view_init(elev=89.9, azim=-90)
 
     ax.set_axis_off()
-    fig.suptitle(titulo, fontsize=13, weight="bold", color="#303030", y=0.96)
-    plt.subplots_adjust(left=0.01, right=0.99, top=0.93, bottom=0.01)
+    fig.suptitle(titulo, fontsize=13, weight="bold", color="#303030", y=0.97)
+
+    # Leyenda de colores + cotas clave (2D, legible)
+    leyenda = "Azul=poste/marco  ·  Naranja=larguero  ·  Gris=cargador  ·  Terracota=entrepaño"
+    fig.text(0.5, 0.035, leyenda, ha="center", fontsize=7.5, color="#505050")
+    if meta:
+        fig.text(0.5, 0.012, _pie_info(meta), ha="center", fontsize=8,
+                 color="#202020", weight="bold")
+        # Escala aproximada (bbox mayor dimensión)
+        mayor = float(max(rng))
+        fig.text(0.98, 0.97, f"Escala aprox. bbox {mayor/1000:.2f} m",
+                 ha="right", va="top", fontsize=7, color="#707070")
+
+    plt.subplots_adjust(left=0.01, right=0.99, top=0.92, bottom=0.07)
     fig.savefig(salida, dpi=140, bbox_inches="tight", facecolor="white",
-                pad_inches=0.1)
+                pad_inches=0.12)
     plt.close(fig)
     print(f"Render: {salida}")
 
 
+def _generar_stubs_no_soportado(datos, vistas: Path):
+    """5 PNG con aviso cuando el tipo no es selectivo."""
+    meta = _meta_dims(datos)
+    tipo = meta["tipo"]
+    titulo_base = datos.get("proyecto") or datos.get("clave") or "PROYECTO"
+    msg = (
+        f"Geometría 3D no disponible para «{tipo}».\n"
+        "Este generador modela solo rack SELECTIVO (pesada/ligera).\n"
+        "Cantilever / entrepiso: stub honesto — no se inventa geometría."
+    )
+    stubs = [
+        ("render_planta.png", f"{titulo_base} — Planta (stub)"),
+        ("render_perspectiva.png", f"{titulo_base} — Perspectiva (stub)"),
+        ("render_modulo_detalle.png", f"{titulo_base} — Detalle (stub)"),
+        ("render_frontal.png", f"{titulo_base} — Alzado frontal (stub)"),
+        ("render_lateral.png", f"{titulo_base} — Alzado lateral (stub)"),
+    ]
+    for nombre, tit in stubs:
+        _render_stub(vistas / nombre, tit, msg, meta)
+    aviso = vistas / "AVISO_GEOMETRIA.txt"
+    aviso.write_text(
+        f"Tipo de sistema: {tipo}\n"
+        "Limitación: modelo_3d.py solo genera geometría real para Selectivo.\n"
+        "Los PNG son stubs informativos.\n",
+        encoding="utf-8",
+    )
+    print(f"AVISO: geometría no soportada para tipo={tipo}. Stubs en {vistas}")
+
+
 def generar(datos_json_path, out_dir):
-    with open(datos_json_path) as f:
+    with open(datos_json_path, encoding="utf-8") as f:
         datos = json.load(f)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     vistas = out_dir / "vistas"
     vistas.mkdir(exist_ok=True)
 
-    print("Construyendo modelo COMPLETO...")
+    clave = datos.get("clave") or "PROYECTO"
+    titulo = datos.get("proyecto") or clave
+    meta = _meta_dims(datos)
+
+    if not geometria_selectiva_soportada(datos):
+        _generar_stubs_no_soportado(datos, vistas)
+        # Marcador vacío para que el pipeline no asuma GLB válido
+        (out_dir / f"{clave}_SIN_GEOMETRIA.txt").write_text(
+            f"Sin mesh 3D: tipo={tipo_sistema(datos)}\n", encoding="utf-8"
+        )
+        return
+
+    print(f"Construyendo modelo COMPLETO (poste {meta['poste']} mm, {meta['carga']})...")
     mesh_full = construir_proyecto(datos)
     print(f"  {len(mesh_full.vertices)} vert, {len(mesh_full.faces)} caras")
 
     # Exportar archivos del proyecto completo
-    clave = datos['clave']
     obj_path = out_dir / f"{clave}.obj"
     dae_path = out_dir / f"{clave}.dae"
     glb_path = out_dir / f"{clave}.glb"
-    mesh_full.export(str(obj_path))
-    print(f"OBJ: {obj_path}")
+    try:
+        mesh_full.export(str(obj_path))
+        print(f"OBJ: {obj_path}")
+    except Exception as e:
+        print(f"OBJ skip: {e}")
     try:
         mesh_full.export(str(dae_path))
         print(f"DAE: {dae_path}")
     except Exception as e:
         print(f"DAE skip: {e}")
-    _mesh_para_glb(mesh_full).export(str(glb_path))
+    try:
+        _mesh_para_glb(mesh_full).export(str(glb_path))
+        print(f"GLB: {glb_path}")
+    except Exception as e:
+        print(f"GLB skip: {e}")
 
     # Renders del proyecto completo (planta para overview)
-    titulo = datos.get("proyecto", "PROYECTO")
     _render(mesh_full, "planta", f"{titulo} — Vista en planta general",
-            vistas / "render_planta.png")
+            vistas / "render_planta.png", meta=meta)
 
     # Sección representativa para perspectiva (mejor detalle)
     print("Sección representativa...")
     mesh_rep = construir_seccion_representativa(datos, n_corridas_rep=2,
                                                   mods_por_corrida_rep=4)
     print(f"  {len(mesh_rep.vertices)} vert, {len(mesh_rep.faces)} caras")
-    mesh_rep.export(str(out_dir / f"{datos['clave']}_seccion.obj"))
+    mesh_rep.export(str(out_dir / f"{clave}_seccion.obj"))
     _render(mesh_rep, "perspectiva",
              f"{titulo} — Perspectiva (sección representativa)",
-             vistas / "render_perspectiva.png")
+             vistas / "render_perspectiva.png", meta=meta)
 
     # Módulo único en detalle (con entrepaños visibles)
     print("Módulo de detalle...")
     detalle = trimesh.util.concatenate(construir_modulo(0, 0, datos,
                                                           con_entrepano=True))
     print(f"  {len(detalle.vertices)} vert, {len(detalle.faces)} caras")
-    detalle.export(str(out_dir / f"{datos['clave']}_modulo.obj"))
-    detalle.export(str(out_dir / f"{datos['clave']}_modulo.dae"))
+    detalle.export(str(out_dir / f"{clave}_modulo.obj"))
+    try:
+        detalle.export(str(out_dir / f"{clave}_modulo.dae"))
+    except Exception as e:
+        print(f"DAE modulo skip: {e}")
     _render(detalle, "perspectiva",
              f"{titulo} — Detalle de un módulo",
-             vistas / "render_modulo_detalle.png")
+             vistas / "render_modulo_detalle.png", meta=meta)
     _render(detalle, "frontal",
              f"{titulo} — Alzado frontal (módulo)",
-             vistas / "render_frontal.png")
+             vistas / "render_frontal.png", meta=meta)
     _render(detalle, "lateral",
              f"{titulo} — Alzado lateral (módulo)",
-             vistas / "render_lateral.png")
+             vistas / "render_lateral.png", meta=meta)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,9 @@ log = logging.getLogger("ventas_client")
 BASE = Path(__file__).parent.parent  # app/ai/
 
 client = AsyncAnthropic()
-MODEL = "claude-opus-4-8"
+# Sonnet (no Opus): redactar propuesta comercial con montos ya calculados no
+# necesita el razonamiento profundo del proyectista; ~5–10× más barato/token.
+MODEL = "claude-sonnet-4-5"
 MAX_TOKENS = 1024
 
 SYSTEM_PROMPT = (BASE / "prompts" / "ventas.md").read_text(encoding="utf-8")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -21,6 +22,11 @@ from openpyxl.utils import get_column_letter
 
 AZUL = "1A3A8C"
 GRIS = "EFEFEF"
+VERDE = "0F7B3F"
+
+
+def _fecha(datos: dict) -> str:
+    return datos.get("fecha") or date.today().strftime("%d/%m/%Y")
 
 
 def _header(ws, titulo: str, subtitulo: str, ncols: int) -> None:
@@ -45,24 +51,104 @@ def _fila_encabezado(ws, fila: int, cols: list[str]) -> None:
         c.fill = PatternFill("solid", fgColor=GRIS)
 
 
+def _descuento_pct(datos: dict) -> float:
+    pct = float(datos.get("descuento_pct") or 0)
+    if pct > 1:
+        pct = pct / 100.0
+    return pct
+
+
 def despiece(datos: dict, out_dir: Path) -> Path:
     wb = Workbook()
     ws = wb.active
     ws.title = "Despiece"
-    cols = ["Pzas", "Código", "Descripción", "Color", "Obs."]
-    _header(ws, f"DESPIECE — {datos.get('proyecto', '')}",
-            f"{datos.get('clave', '')} · {datos.get('cliente', '')}", len(cols))
+    cols = ["Pzas", "Código", "Descripción", "Color", "P. Unit.", "Importe", "Obs."]
+    cliente = datos.get("cliente") or "—"
+    clave = datos.get("clave") or "PROYECTO"
+    _header(
+        ws,
+        f"DESPIECE — {datos.get('proyecto', '')}",
+        f"Clave: {clave}  ·  Cliente: {cliente}  ·  Fecha: {_fecha(datos)}",
+        len(cols),
+    )
+    # Fila de especificación
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=len(cols))
+    ws.cell(3, 1, datos.get("especificacion") or "").font = Font(italic=True, size=9)
+
     _fila_encabezado(ws, 4, cols)
     r = 5
-    for m in datos.get("materiales", []):
-        ws.cell(r, 1, m.get("pzas"))
+    subtotal = 0.0
+    money = "#,##0.00"
+    for m in datos.get("materiales", []) or []:
+        pzas = m.get("pzas") or 0
+        precio = m.get("precio")
+        try:
+            pzas_f = float(pzas)
+        except (TypeError, ValueError):
+            pzas_f = 0.0
+        try:
+            precio_f = float(precio) if precio is not None else None
+        except (TypeError, ValueError):
+            precio_f = None
+        importe = (pzas_f * precio_f) if precio_f is not None else None
+        if importe is not None:
+            subtotal += importe
+
+        ws.cell(r, 1, pzas)
         ws.cell(r, 2, m.get("codigo"))
         ws.cell(r, 3, m.get("descripcion"))
         ws.cell(r, 4, m.get("color"))
-        ws.cell(r, 5, m.get("obs", ""))
+        if precio_f is not None:
+            cu = ws.cell(r, 5, precio_f)
+            cu.number_format = money
+            ci = ws.cell(r, 6, round(importe or 0, 2))
+            ci.number_format = money
+        else:
+            ws.cell(r, 5, "cotizar")
+            ws.cell(r, 6, "—")
+        ws.cell(r, 7, m.get("obs", ""))
         r += 1
-    _anchos(ws, [8, 18, 50, 16, 26])
-    p = out_dir / f"Despiece_{datos.get('clave', 'PROYECTO')}.xlsx"
+
+    # Totales
+    r += 1
+    ws.cell(r, 5, "Subtotal").font = Font(bold=True)
+    cs = ws.cell(r, 6, round(subtotal, 2))
+    cs.font = Font(bold=True)
+    cs.number_format = money
+
+    pct = _descuento_pct(datos)
+    if pct > 0 and subtotal > 0:
+        r += 1
+        monto = round(subtotal * pct, 2)
+        cell_d = ws.cell(r, 5, f"Descuento ({pct * 100:.1f}%)")
+        cell_d.font = Font(bold=True, color=VERDE)
+        cd = ws.cell(r, 6, -monto)
+        cd.font = Font(bold=True, color=VERDE)
+        cd.number_format = money
+        motivo = datos.get("motivo_descuento") or ""
+        if motivo:
+            ws.cell(r, 7, motivo)
+        r += 1
+        ws.cell(r, 5, "TOTAL CON DESCUENTO").font = Font(bold=True, color="FFFFFF")
+        ws.cell(r, 5).fill = PatternFill("solid", fgColor=AZUL)
+        ct = ws.cell(r, 6, round(subtotal - monto, 2))
+        ct.font = Font(bold=True, color="FFFFFF")
+        ct.fill = PatternFill("solid", fgColor=AZUL)
+        ct.number_format = money
+    else:
+        r += 1
+        ws.cell(r, 5, "TOTAL").font = Font(bold=True, color="FFFFFF")
+        ws.cell(r, 5).fill = PatternFill("solid", fgColor=AZUL)
+        ct = ws.cell(r, 6, round(subtotal, 2))
+        ct.font = Font(bold=True, color="FFFFFF")
+        ct.fill = PatternFill("solid", fgColor=AZUL)
+        ct.number_format = money
+
+    r += 2
+    ws.cell(r, 3, "IVA, flete e instalación se cotizan por separado.").font = Font(italic=True)
+
+    _anchos(ws, [8, 18, 52, 14, 12, 14, 28])
+    p = out_dir / f"Despiece_{clave}.xlsx"
     wb.save(p)
     return p
 
@@ -70,7 +156,7 @@ def despiece(datos: dict, out_dir: Path) -> Path:
 def cotizacion(datos: dict, out_dir: Path) -> Path | None:
     items = datos.get("cotizacion") or []
     if not items:
-        # Derivar de los materiales que traigan precio unitario.
+        # Derivar de los materiales (con o sin precio).
         items = [
             {
                 "codigo": m.get("codigo"),
@@ -78,8 +164,7 @@ def cotizacion(datos: dict, out_dir: Path) -> Path | None:
                 "cantidad": m.get("pzas"),
                 "precio_unitario": m.get("precio"),
             }
-            for m in datos.get("materiales", [])
-            if m.get("precio") is not None
+            for m in datos.get("materiales", []) or []
         ]
     if not items:
         return None
@@ -87,35 +172,76 @@ def cotizacion(datos: dict, out_dir: Path) -> Path | None:
     ws = wb.active
     ws.title = "Cotización"
     cols = ["Código", "Descripción", "Cant.", "P. Unit.", "Importe"]
-    _header(ws, f"COTIZACIÓN — {datos.get('proyecto', '')}",
-            f"{datos.get('clave', '')} · {datos.get('cliente', '')} · MXN sin IVA (mayoreo)",
-            len(cols))
+    clave = datos.get("clave") or "PROYECTO"
+    _header(
+        ws,
+        f"COTIZACIÓN — {datos.get('proyecto', '')}",
+        f"Clave: {clave}  ·  Cliente: {datos.get('cliente') or '—'}  ·  "
+        f"Fecha: {_fecha(datos)}  ·  MXN sin IVA (mayoreo)",
+        len(cols),
+    )
     _fila_encabezado(ws, 4, cols)
     r = 5
     subtotal = 0.0
     for it in items:
         imp = it.get("importe")
+        pu = it.get("precio_unitario")
         if imp is None:
             try:
-                imp = float(it.get("cantidad", 0)) * float(it.get("precio_unitario", 0))
+                if pu is not None:
+                    imp = float(it.get("cantidad") or 0) * float(pu)
+                else:
+                    imp = None
             except (TypeError, ValueError):
-                imp = 0
-        subtotal += float(imp or 0)
+                imp = None
+        if imp is not None:
+            subtotal += float(imp)
         ws.cell(r, 1, it.get("codigo"))
         ws.cell(r, 2, it.get("descripcion"))
         ws.cell(r, 3, it.get("cantidad"))
-        cu = ws.cell(r, 4, it.get("precio_unitario"))
-        cu.number_format = "#,##0.00"
-        ci = ws.cell(r, 5, imp)
-        ci.number_format = "#,##0.00"
+        if pu is not None:
+            try:
+                cu = ws.cell(r, 4, float(pu))
+                cu.number_format = "#,##0.00"
+            except (TypeError, ValueError):
+                ws.cell(r, 4, "cotizar")
+        else:
+            ws.cell(r, 4, "cotizar")
+        if imp is not None:
+            ci = ws.cell(r, 5, float(imp))
+            ci.number_format = "#,##0.00"
+        else:
+            ws.cell(r, 5, "—")
         r += 1
+
     ws.cell(r, 4, "Subtotal").font = Font(bold=True)
     cs = ws.cell(r, 5, round(subtotal, 2))
     cs.font = Font(bold=True)
     cs.number_format = "#,##0.00"
+
+    pct = _descuento_pct(datos)
+    if pct > 0 and subtotal > 0:
+        r += 1
+        monto = round(subtotal * pct, 2)
+        ws.cell(r, 4, f"Descuento ({pct * 100:.1f}%)").font = Font(bold=True, color=VERDE)
+        cd = ws.cell(r, 5, -monto)
+        cd.font = Font(bold=True, color=VERDE)
+        cd.number_format = "#,##0.00"
+        r += 1
+        ws.cell(r, 4, "TOTAL CON DESCUENTO").font = Font(bold=True)
+        ct = ws.cell(r, 5, round(subtotal - monto, 2))
+        ct.font = Font(bold=True)
+        ct.number_format = "#,##0.00"
+    else:
+        r += 1
+        ws.cell(r, 4, "TOTAL").font = Font(bold=True)
+        ct = ws.cell(r, 5, round(subtotal, 2))
+        ct.font = Font(bold=True)
+        ct.number_format = "#,##0.00"
+
     ws.cell(r + 2, 2, "IVA, flete e instalación se cotizan por separado.").font = Font(italic=True)
     _anchos(ws, [18, 54, 10, 14, 16])
-    p = out_dir / f"Cotizacion_{datos.get('clave', 'PROYECTO')}.xlsx"
+    p = out_dir / f"Cotizacion_{clave}.xlsx"
     wb.save(p)
     return p
 

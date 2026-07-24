@@ -24,6 +24,11 @@ from ..services.ocr_service import transcribir_audio_groq, comprimir_imagen, des
 from ..services.proyecto_pm_service import generar_proyecto_pm, limpiar_temporales
 from ..services.historial_service import ultimo_proyecto_de_sesion
 from ..ai.pipelines import cuestionario
+from .mensajes_entrega import (
+    armar_detalle_validacion,
+    armar_mensaje_entrega,
+    ordenar_archivos_entrega,
+)
 
 log = logging.getLogger("telegram.handlers")
 
@@ -61,8 +66,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ Notas de voz explicando el requerimiento.\n"
         "3️⃣ Fotos de requisiciones, bosquejos o del sitio.\n"
         "4️⃣ Archivos PDF con planos o fichas técnicas.\n\n"
-        "Si falta algo crítico (producto, dimensiones, unidad de carga, "
-        "montacargas), te voy preguntando antes de cotizar.\n\n"
+        "Primero confirmo el <b>tipo</b> (selectivo / cantiléver / entrepiso) "
+        "y luego te pido solo lo crítico para diseñar (dims, carga, niveles, "
+        "pasillo, etc.).\n\n"
         "<code>/cancelar</code> — abandona el cuestionario en curso."
     )
     await update.message.reply_text(mensaje_inicio, parse_mode="HTML")
@@ -222,40 +228,66 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
     BUFFERS.pop(session_id, None)  # limpiamos el buffer pase lo que pase
 
     if resultado.error:
-        await status.edit_text(f"❌ Error al generar: {resultado.error}")
+        await status.edit_text(
+            "❌ No pude generar el proyecto.\n\n"
+            f"{resultado.error}\n\n"
+            "Revisa el requerimiento o vuelve a intentarlo en unos minutos."
+        )
         return
 
-    for parte in resultado.partes_texto:
-        await update.message.reply_text(parte)
+    fallo_archivos = bool(
+        resultado.proyecto and not resultado.archivos and not resultado.link_visor_3d
+    )
+    resumen_partes = armar_mensaje_entrega(
+        proyecto=resultado.proyecto,
+        archivos=resultado.archivos,
+        link_visor_3d=resultado.link_visor_3d,
+        errores=resultado.errores_validacion,
+        avisos=resultado.avisos_validacion,
+        fallo_archivos=fallo_archivos,
+    )
+    for parte in resumen_partes:
+        await update.message.reply_text(
+            parte, parse_mode="HTML", disable_web_page_preview=True,
+        )
 
-    if resultado.validacion_texto:
-        for parte in resultado.validacion_texto:
+    for parte in armar_detalle_validacion(
+        resultado.errores_validacion, resultado.avisos_validacion,
+    ):
+        await update.message.reply_text(parte, parse_mode="HTML")
+
+    # Notas del diseño (texto de Claude, sin JSON/HTML ya extraídos).
+    notas = [p for p in resultado.partes_texto if p and p.strip() and p.strip() != "Listo."]
+    if notas:
+        await update.message.reply_text("📝 <b>Notas del diseño</b>", parse_mode="HTML")
+        for parte in notas:
             await update.message.reply_text(parte)
 
     if resultado.proyecto:
-        if resultado.link_visor_3d:
-            await update.message.reply_text(
-                f"🌐 <a href=\"{resultado.link_visor_3d}\"><b>VER MODELO 3D EN TU VISOR</b></a>",
-                parse_mode="HTML", disable_web_page_preview=True,
-            )
-
-        await status.edit_text("🧱 Enviando planos y renders…")
-        for p in resultado.archivos:
-            try:
-                if p.suffix.lower() == ".png":
-                    await update.message.reply_photo(photo=p.open("rb"))
-                else:
-                    await update.message.reply_document(document=p.open("rb"), filename=p.name)
-            except Exception as e:  # noqa: BLE001
-                log.warning("No se pudo enviar %s: %s", p, e)
-        if not resultado.archivos and not resultado.link_visor_3d:
-            await update.message.reply_text(
-                "⚠️ No pude generar planos/renders (¿faltan dependencias en el servidor?). "
-                "El diseño y la cotización de arriba siguen siendo válidos."
-            )
+        archivos = ordenar_archivos_entrega(resultado.archivos)
+        if archivos:
+            await status.edit_text("🧱 Enviando planos y renders…")
+            for p in archivos:
+                try:
+                    if p.suffix.lower() == ".png":
+                        await update.message.reply_photo(photo=p.open("rb"))
+                    else:
+                        await update.message.reply_document(
+                            document=p.open("rb"), filename=p.name,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    log.warning("No se pudo enviar %s: %s", p, e)
 
         if resultado.propuesta_comercial:
+            await update.message.reply_text("💼 <b>Propuesta comercial</b>", parse_mode="HTML")
             await update.message.reply_text(resultado.propuesta_comercial)
+
+        if resultado.errores_validacion:
+            await update.message.reply_text(
+                "⚠️ Hay errores de validación en este diseño. "
+                "Corrige el requerimiento o indícame el ajuste y reenvíamelo "
+                "para regenerar el proyecto.",
+            )
 
     try:
         await status.delete()

@@ -1,11 +1,18 @@
 """
-Endpoints del sistema RAG: disparar la sincronización (indexar catálogo y
-correcciones al vector store) y probar búsquedas semánticas manualmente.
+Endpoints del sistema RAG: disparar la sincronización (indexar catálogo,
+correcciones y fichas técnicas locales al vector store) y probar búsquedas
+semánticas manualmente.
 
 La indexación NO es automática en tiempo real todavía — cuando se registra
-una corrección nueva (o cambia un precio del catálogo), hay que llamar a
-POST /rag/sync para que se vuelva buscable. Es intencional: evita
-recalcular embeddings (que cuestan dinero) en cada mensaje de Telegram.
+una corrección nueva (o cambia un precio del catálogo / una ficha en
+`knowledge/tecnico`), hay que llamar a POST /rag/sync para que se vuelva
+buscable. Es intencional: evita recalcular embeddings (que cuestan dinero)
+en cada mensaje de Telegram.
+
+Cómo correr el sync:
+  - Dashboard Flutter → módulo RAG → "Sincronizar", o
+  - `POST /rag/sync` y luego `GET /rag/sync/status` hasta `en_progreso=false`.
+  - Buscar fichas: `GET /rag/search?q=...&tipo=manual`.
 """
 import logging
 
@@ -29,8 +36,9 @@ def _sync_en_segundo_plano() -> None:
 @router.post("/sync")
 def sincronizar_rag(background_tasks: BackgroundTasks):
     """
-    Dispara la reindexacion de catalogo (catalogo_pm) y correcciones
-    (correcciones_armado) en segundo plano y responde de inmediato.
+    Dispara la reindexacion de catalogo (catalogo_pm), correcciones
+    (correcciones_armado) y fichas tecnicas locales (knowledge/tecnico)
+    en segundo plano y responde de inmediato.
 
     Antes esto corria de forma sincrona: con el batching + pausa de 21s entre
     lotes (para no pegarle al rate-limit de Voyage), una sync completa puede

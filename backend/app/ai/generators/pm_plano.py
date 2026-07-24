@@ -26,8 +26,84 @@ from reportlab.pdfbase.ttfonts import TTFont
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts — carta apaisada
 
 PM_AZUL = HexColor("#00B5E2")
+PM_AZUL_OSCURO = HexColor("#1A3A8C")
 PM_GRIS = HexColor("#404040")
 COTA = HexColor("#B00020")
+AVISO_BG = HexColor("#FFF5F5")
+AVISO_BORDE = HexColor("#B00020")
+
+
+def _tipo_sistema(datos: dict) -> str:
+    return str((datos.get("layout") or {}).get("tipo") or "Selectivo")
+
+
+def _es_selectivo(datos: dict) -> bool:
+    t = _tipo_sistema(datos).lower()
+    return not any(k in t for k in ("cantilever", "entrepiso", "mezzanine", "mezanine"))
+
+
+def _banner_proyecto(c, datos, y_top=PAGE_H - 22):
+    """Franja con datos clave del proyecto (legibilidad / no depender solo del cajetín)."""
+    c.setFillColor(PM_AZUL_OSCURO)
+    c.rect(20, y_top - 28, PAGE_W - 40, 30, stroke=0, fill=1)
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", 9)
+    titulo = datos.get("proyecto") or datos.get("clave") or "PROYECTO"
+    c.drawString(28, y_top - 12, str(titulo)[:70])
+    c.setFont("Helvetica", 7.5)
+    layout = datos.get("layout") or {}
+    meta = (
+        f"Clave: {datos.get('clave') or '—'}  ·  "
+        f"Cliente: {datos.get('cliente') or '—'}  ·  "
+        f"Fecha: {datos.get('fecha') or date.today().strftime('%d/%m/%Y')}  ·  "
+        f"Tipo: {_tipo_sistema(datos)}  ·  "
+        f"Frente {layout.get('frente_mm', '—')} × Fondo {layout.get('fondo_mm', '—')} × "
+        f"Altura {layout.get('altura_total_mm', '—')} mm"
+    )
+    c.drawString(28, y_top - 24, meta[:130])
+    c.setFillColor(black)
+    return y_top - 36
+
+
+def _aviso_caja(c, x, y, w, h, titulo: str, detalle: str):
+    """Placeholder visible cuando falta un render o la geometría no aplica."""
+    c.setFillColor(AVISO_BG)
+    c.setStrokeColor(AVISO_BORDE)
+    c.setLineWidth(1.0)
+    c.rect(x, y, w, h, stroke=1, fill=1)
+    c.setFillColor(AVISO_BORDE)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(x + w / 2, y + h / 2 + 10, titulo)
+    c.setFont("Helvetica", 8)
+    c.setFillColor(PM_GRIS)
+    # Envolver a ~70 chars
+    from reportlab.lib.utils import simpleSplit
+    lineas = simpleSplit(detalle, "Helvetica", 8, w - 24)
+    yy = y + h / 2 - 6
+    for ln in lineas[:4]:
+        c.drawCentredString(x + w / 2, yy, ln)
+        yy -= 11
+    c.setFillColor(black)
+    c.setStrokeColor(black)
+
+
+def _aviso_tipo_no_selectivo(c, datos, y=PAGE_H - 55):
+    if _es_selectivo(datos):
+        return y
+    tipo = _tipo_sistema(datos)
+    c.setFillColor(AVISO_BG)
+    c.setStrokeColor(AVISO_BORDE)
+    c.rect(20, y - 22, PAGE_W - 40, 24, stroke=1, fill=1)
+    c.setFillColor(AVISO_BORDE)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(
+        28, y - 10,
+        f"AVISO: tipo «{tipo}» — los alzados/renders son esquemáticos o stubs. "
+        "Geometría 3D detallada solo para rack SELECTIVO.",
+    )
+    c.setFillColor(black)
+    c.setStrokeColor(black)
+    return y - 30
 
 
 def _draw_cajetin(c, hoja, total, datos, vista_titulo, escala):
@@ -202,19 +278,23 @@ def _cota(c, x1, y1, x2, y2, texto, offset=10, vertical=False):
 
 def _hoja_planta_con_fondo(c, datos):
     """Hoja 1 alternativa: Vista en planta usando layout del almacén como fondo,
-    con zonas de rack superpuestas."""
+    con zonas de rack superpuestas. (Banner/aviso ya dibujados por _hoja_planta.)"""
     layout = datos["layout"]
     bg = layout.get("background_image")
     zones = layout.get("zones", [])
 
-    # Área de dibujo (deja espacio para cajetín)
+    # Área de dibujo (deja espacio para cajetín y banner)
     ox, oy = 20, 160
-    aw, ah = PAGE_W - 360, PAGE_H - 200
+    aw, ah = PAGE_W - 360, PAGE_H - 220
 
-    bg_path = Path(__file__).parent / bg
-    if bg_path.exists():
+    bg_path = Path(__file__).parent / bg if bg else None
+    if bg_path and bg_path.exists():
         c.drawImage(str(bg_path), ox, oy, width=aw, height=ah,
                     preserveAspectRatio=True, mask='auto')
+    elif bg:
+        print(f"pm_plano: background_image no encontrado: {bg}")
+        _aviso_caja(c, ox, oy, aw, ah, "Plano de fondo no encontrado",
+                    f"No se pudo cargar «{bg}». Se muestran solo zonas.")
 
     # Overlay de cada zona naranja con los racks
     naranja = HexColor("#FF7A00")
@@ -252,7 +332,7 @@ def _hoja_planta_con_fondo(c, datos):
     # Leyenda
     c.setFont("Helvetica-Bold", 9)
     c.drawString(ox, oy - 14,
-                 f"PLANTA CALLE 11 — Racks en zonas naranjas  ·  "
+                 f"PLANTA — Racks en zonas naranjas  ·  "
                  f"Total: {total_modulos} módulos de {layout['frente_mm']/1000:.2f} x "
                  f"{layout['fondo_mm']/1000:.2f} m, altura {layout['altura_total_mm']/1000:.1f} m")
     c.setFont("Helvetica", 7)
@@ -268,6 +348,8 @@ def _hoja_planta_con_fondo(c, datos):
 
 def _hoja_planta(c, datos):
     """Hoja 1: Vista en planta del rack en el almacén."""
+    _banner_proyecto(c, datos)
+    _aviso_tipo_no_selectivo(c, datos)
     layout = datos["layout"]
     if layout.get("background_image"):
         return _hoja_planta_con_fondo(c, datos)
@@ -277,17 +359,17 @@ def _hoja_planta(c, datos):
     fondo = layout["fondo_mm"]           # fondo de la cabecera (mm)
     pasillo = layout["pasillo_mm"]       # ancho de pasillo (mm)
 
-    # Área de dibujo
-    ox, oy = 60, 220
-    aw, ah = 600, 280
+    # Área de dibujo (bajo el banner)
+    ox, oy = 60, 200
+    aw, ah = 600, 260
 
     # Calcular escala automática
     total_x = modulos_x * frente + (modulos_x - 1) * 50
     total_y = modulos_y * fondo + (modulos_y - 1) * pasillo
-    sx = aw / total_x
-    sy = ah / total_y
+    sx = aw / max(total_x, 1)
+    sy = ah / max(total_y, 1)
     s = min(sx, sy) * 0.85
-    escala_real = int(1 / s)
+    escala_real = max(1, int(1 / s)) if s > 0 else 1
 
     # Centrar
     draw_w = total_x * s
@@ -338,9 +420,10 @@ def _hoja_planta(c, datos):
 
     # Leyenda
     c.setFont("Helvetica", 7)
+    n_niv = max(0, len(layout.get("niveles") or []) - 1)
     c.drawString(60, oy - 12, f"Módulos: {modulos_x} × {modulos_y}    "
                               f"Frente: {frente} mm    Fondo: {fondo} mm    "
-                              f"Pasillo: {pasillo} mm")
+                              f"Pasillo: {pasillo} mm    Niveles: {n_niv}")
 
     _draw_cajetin(c, 1, 4, datos, "VISTA EN PLANTA", f"1:{escala_real}")
     c.showPage()
@@ -366,6 +449,7 @@ def _alzado_render_o_esquema(c, datos, vista, render_key, x, y, w, h, titulo):
     c.rect(x, y, w, h, stroke=1, fill=0)
 
     c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(black)
     c.drawString(x, y + h + 8, titulo)
 
     if render_path:
@@ -373,6 +457,14 @@ def _alzado_render_o_esquema(c, datos, vista, render_key, x, y, w, h, titulo):
         c.drawImage(str(render_path), x + 5, y + 5, width=w - 10, height=h - 10,
                     preserveAspectRatio=True, mask='auto')
         return x, y, w, h
+
+    # Sin PNG: aviso explícito (no fallar en silencio) + esquema de respaldo
+    print(f"pm_plano: falta render '{render_key}' — usando esquema + aviso")
+    _aviso_caja(
+        c, x + 4, y + h - 48, w - 8, 42,
+        "Render no disponible",
+        f"No se encontró {render_key}. Se muestra esquema acotado.",
+    )
 
     # ----- Fallback esquemático mejorado -----
     if vista == "frontal":
@@ -382,12 +474,12 @@ def _alzado_render_o_esquema(c, datos, vista, render_key, x, y, w, h, titulo):
     dim_y = altura_total
     pad = 30
     sx = (w - 2 * pad) / dim_x
-    sy = (h - 2 * pad) / dim_y
+    sy = (h - 2 * pad - 50) / dim_y  # deja hueco al aviso superior
     s = min(sx, sy)
     dw = dim_x * s
     dh = dim_y * s
     cx = x + (w - dw) / 2
-    cy = y + (h - dh) / 2
+    cy = y + 8
 
     poste_w = 5
     # Postes
@@ -438,6 +530,8 @@ def _alzado_render_o_esquema(c, datos, vista, render_key, x, y, w, h, titulo):
 
 def _hoja_alzado(c, datos):
     """Hoja 2: Alzado frontal y lateral usando renders 3D + cotas."""
+    _banner_proyecto(c, datos)
+    _aviso_tipo_no_selectivo(c, datos)
     layout = datos["layout"]
     niveles = layout["niveles"]
     altura_total = layout["altura_total_mm"]
@@ -446,7 +540,7 @@ def _hoja_alzado(c, datos):
     peralte = layout.get("peralte_larguero_mm", 150)
 
     # ===== ALZADO FRONTAL (izquierda) =====
-    fx, fy, fw, fh = 80, 200, 320, 310
+    fx, fy, fw, fh = 80, 175, 320, 290
     bx, by, bw, bh = _alzado_render_o_esquema(c, datos, "frontal",
                                                 "render_frontal_path",
                                                 fx, fy, fw, fh,
@@ -455,7 +549,7 @@ def _hoja_alzado(c, datos):
     # Cotas verticales a la IZQUIERDA del recuadro (niveles)
     cota_x = fx - 10
     # Mapeo de mm a coordenadas del recuadro
-    z_map = lambda mm: fy + 10 + (fh - 20) * mm / altura_total
+    z_map = lambda mm: fy + 10 + (fh - 20) * mm / max(altura_total, 1)
     prev = 0
     for h_nivel in niveles[1:]:
         delta = h_nivel - prev
@@ -480,7 +574,7 @@ def _hoja_alzado(c, datos):
     c.setFillColor(black)
 
     # ===== ALZADO LATERAL (derecha) =====
-    lx, ly, lwd, lhd = 460, 200, 250, 310
+    lx, ly, lwd, lhd = 460, 175, 250, 290
     _alzado_render_o_esquema(c, datos, "lateral",
                               "render_lateral_path",
                               lx, ly, lwd, lhd,
@@ -488,7 +582,7 @@ def _hoja_alzado(c, datos):
     # Cota fondo abajo
     _cota(c, lx + 10, ly - 8, lx + lwd - 10, ly - 8, f"{fondo} mm", offset=-12)
     # Cota altura izquierda
-    z_map_l = lambda mm: ly + 10 + (lhd - 20) * mm / altura_total
+    z_map_l = lambda mm: ly + 10 + (lhd - 20) * mm / max(altura_total, 1)
     _cota(c, lx - 10, z_map_l(0), lx - 10, z_map_l(altura_total),
           f"{altura_total} mm", offset=-12, vertical=True)
 
@@ -498,17 +592,19 @@ def _hoja_alzado(c, datos):
 
 def _hoja_despiece(c, datos):
     """Hoja 3: Despiece, lista de materiales con precios y memoria de cálculo."""
+    _banner_proyecto(c, datos)
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, PAGE_H - 40, "DESPIECE, LISTA DE MATERIALES Y COTIZACION")
+    c.setFillColor(black)
+    c.drawString(50, PAGE_H - 70, "DESPIECE, LISTA DE MATERIALES Y COTIZACION")
     c.setFont("Helvetica-Oblique", 7)
-    c.drawString(50, PAGE_H - 52, "Tolerancia: ±2.00 cm    Acotación: mm    Precios MAYOREO sin IVA (MXN)")
+    c.drawString(50, PAGE_H - 82, "Tolerancia: ±2.00 cm    Acotación: mm    Precios MAYOREO sin IVA (MXN)")
 
     materiales = datos.get("materiales", [])
     headers = ["PZAS", "CODIGO", "DESCRIPCION", "COLOR", "P. UNIT.", "IMPORTE"]
     col_x = [50, 95, 180, 470, 555, 625]
     col_w = [45, 85, 290, 85, 70, 110]
 
-    y = PAGE_H - 80
+    y = PAGE_H - 100
     c.setFillColor(PM_AZUL)
     c.rect(50, y - 2, sum(col_w), 14, stroke=0, fill=1)
     c.setFillColor(white)
@@ -560,29 +656,48 @@ def _hoja_despiece(c, datos):
         c.setFillColor(black)
     c.setStrokeColor(black)
 
-    # Totales (esquina derecha, sobre cajetín)
+    # Totales (esquina derecha, sobre cajetín) — incluye descuento si aplica
     ttop = 215
+    descuento_pct = float(datos.get("descuento_pct") or 0)
+    if descuento_pct > 1:
+        descuento_pct = descuento_pct / 100.0
     iva = subtotal * 0.16
-    instalacion = datos.get("memoria", {}).get("instalacion_mxn", 0)
+    instalacion = datos.get("memoria", {}).get("instalacion_mxn", 0) or 0
     neto = subtotal + instalacion
-    total = neto + iva
+    monto_desc = neto * descuento_pct if descuento_pct > 0 else 0
+    neto_desc = neto - monto_desc
+    total = neto_desc + (neto_desc * 0.16 if descuento_pct > 0 else iva)
+    # Si hay descuento, IVA se recalcula sobre neto con descuento
+    if descuento_pct > 0:
+        iva = neto_desc * 0.16
+        total = neto_desc + iva
+
     c.setFont("Helvetica-Bold", 8)
     c.setFillColor(PM_AZUL)
-    c.rect(540, ttop - 60, 195, 70, stroke=0, fill=1)
+    box_h = 82 if descuento_pct > 0 else 70
+    c.rect(540, ttop - box_h + 10, 195, box_h, stroke=0, fill=1)
     c.setFillColor(white)
     c.drawString(545, ttop - 8, "RESUMEN COTIZACION (MXN)")
     c.setFont("Helvetica", 8)
     c.drawString(545, ttop - 20, "Sub-total materiales:")
     c.drawRightString(730, ttop - 20, f"${subtotal:,.2f}")
-    c.drawString(545, ttop - 30, "Instalación:")
-    c.drawRightString(730, ttop - 30, f"${instalacion:,.2f}")
-    c.drawString(545, ttop - 40, "Neto:")
-    c.drawRightString(730, ttop - 40, f"${neto:,.2f}")
-    c.drawString(545, ttop - 50, "IVA 16%:")
-    c.drawRightString(730, ttop - 50, f"${iva:,.2f}")
+    yy = ttop - 30
+    if descuento_pct > 0:
+        c.drawString(545, yy, f"Descuento ({descuento_pct * 100:.1f}%):")
+        c.drawRightString(730, yy, f"-${monto_desc:,.2f}")
+        yy -= 10
+    c.drawString(545, yy, "Instalación:")
+    c.drawRightString(730, yy, f"${instalacion:,.2f}")
+    yy -= 10
+    c.drawString(545, yy, "Neto:")
+    c.drawRightString(730, yy, f"${neto_desc:,.2f}")
+    yy -= 10
+    c.drawString(545, yy, "IVA 16%:")
+    c.drawRightString(730, yy, f"${iva:,.2f}")
+    yy -= 10
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(545, ttop - 60 + 3, "TOTAL:")
-    c.drawRightString(730, ttop - 60 + 3, f"${total:,.2f}")
+    c.drawString(545, yy, "TOTAL:")
+    c.drawRightString(730, yy, f"${total:,.2f}")
     c.setFillColor(black)
 
     # Memoria de cálculo (bloque inferior IZQUIERDO solamente, no choca con totales/cajetín)
@@ -651,6 +766,8 @@ def _resolve_path(p):
 
 def _hoja_notas_render(c, datos):
     """Hoja 4: Render principal del modelo 3D + detalle + notas generales."""
+    _banner_proyecto(c, datos)
+    _aviso_tipo_no_selectivo(c, datos)
     render = datos.get("render_path")
     render_detalle = datos.get("render_detalle_path")
     render_path = _resolve_path(render)
@@ -658,36 +775,37 @@ def _hoja_notas_render(c, datos):
 
     # Render principal (grande, izquierda-arriba)
     if render_path:
-        c.drawImage(str(render_path), 30, 270, width=440, height=230,
+        c.drawImage(str(render_path), 30, 255, width=440, height=220,
                     preserveAspectRatio=True, mask='auto')
     else:
-        c.setFillColor(HexColor("#F5F5F5"))
-        c.rect(30, 270, 440, 230, stroke=1, fill=1)
-        c.setFillColor(PM_GRIS)
-        c.setFont("Helvetica-Oblique", 10)
-        c.drawCentredString(250, 385, "[ Render del proyecto ]")
-        c.setFillColor(black)
+        print("pm_plano: falta render_path — placeholder en hoja 4")
+        _aviso_caja(
+            c, 30, 255, 440, 220,
+            "[ Render del proyecto no disponible ]",
+            "No se encontró render_perspectiva.png. Regenerar modelo 3D o adjuntar PNG.",
+        )
 
-    # Render detalle (mediano, izquierda-abajo)
+    # Render detalle (mediano, izquierda-abajo) — mismo marco que el principal
     if detalle_path:
-        c.drawImage(str(detalle_path), 30, 50, width=260, height=210,
+        c.drawImage(str(detalle_path), 30, 50, width=260, height=195,
                     preserveAspectRatio=True, mask='auto')
     else:
-        c.setFillColor(HexColor("#F5F5F5"))
-        c.rect(50, 200, 400, 300, stroke=1, fill=1)
-        c.setFillColor(PM_GRIS)
-        c.setFont("Helvetica-Oblique", 10)
-        c.drawCentredString(250, 350,
-                            "[ Espacio para render del proyecto ]")
-        c.setFillColor(black)
+        print("pm_plano: falta render_detalle_path — placeholder en hoja 4")
+        _aviso_caja(
+            c, 30, 50, 260, 195,
+            "[ Detalle de módulo no disponible ]",
+            "No se encontró render_modulo_detalle.png.",
+        )
 
     c.setFont("Helvetica-Oblique", 6)
-    c.drawCentredString(250, 190,
-                        "Las imágenes mostradas son solo una representación "
-                        "y en ningún momento representan al mueble final.")
+    c.setFillColor(PM_GRIS)
+    c.drawCentredString(160, 42,
+                        "Las imágenes son representación esquemática; "
+                        "no sustituyen el mueble final.")
+    c.setFillColor(black)
 
     # Notas generales
-    nx, ny = 470, 500
+    nx, ny = 470, 480
     c.setFont("Helvetica-Bold", 10)
     c.drawString(nx, ny, "NOTAS GENERALES")
     c.setFont("Helvetica-Bold", 8)
@@ -709,6 +827,24 @@ def _hoja_notas_render(c, datos):
     for ln in notas:
         c.drawString(nx, y, ln)
         y -= 10
+
+    # Datos clave a la derecha bajo notas
+    layout = datos.get("layout") or {}
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(nx, y - 8, "DATOS DEL PROYECTO")
+    c.setFont("Helvetica", 7)
+    extras = [
+        f"Clave: {datos.get('clave') or '—'}",
+        f"Cliente: {datos.get('cliente') or '—'}",
+        f"Fecha: {datos.get('fecha') or date.today().strftime('%d/%m/%Y')}",
+        f"Tipo: {_tipo_sistema(datos)}",
+        f"Especificación: {str(datos.get('especificacion') or '—')[:42]}",
+        f"Módulos: {layout.get('modulos_x', '—')} × {layout.get('modulos_y', '—')}",
+    ]
+    yy = y - 20
+    for ln in extras:
+        c.drawString(nx, yy, ln)
+        yy -= 10
 
     _draw_cajetin(c, 4, 4, datos, "RENDER Y NOTAS GENERALES", "S/E")
     c.showPage()

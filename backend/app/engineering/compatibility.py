@@ -16,9 +16,81 @@ decisión técnica debe provenir del Engineering Engine."
 """
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger("pm_rackbot.compatibility")
+
 
 def _sku_de(pieza: dict) -> str | None:
     return pieza.get("codigo") or pieza.get("codigo_sku")
+
+
+def inferir_familia(
+    descripcion: str | None = None,
+    proyecto_anterior: dict | None = None,
+) -> str | None:
+    """Infiere `pesada` / `ligera` desde el proyecto previo o el mensaje.
+
+    Devuelve None si hay ambigüedad (cantilever genérico, sin keywords, etc.).
+    """
+    if proyecto_anterior:
+        espec = (proyecto_anterior.get("especificacion") or "").lower()
+        if "pesada" in espec:
+            return "pesada"
+        if "ligera" in espec:
+            return "ligera"
+
+    texto = (descripcion or "").lower()
+    if "carga pesada" in texto or "pesada gota" in texto or (
+        "pesada" in texto and "ligera" not in texto
+    ):
+        return "pesada"
+    if "carga ligera" in texto or "ligera gota" in texto or (
+        "ligera" in texto and "pesada" not in texto
+    ):
+        return "ligera"
+    return None
+
+
+def filtrar_catalogo_por_familia(
+    catalogo_pm: list[dict],
+    familia: str | None,
+) -> tuple[list[dict], str]:
+    """Subset del catálogo para el system prompt del proyectista.
+
+    - Con familia clara: piezas de esa familia + `comun`.
+    - Sin familia (ambigüedad): catálogo completo + log (fallback seguro).
+
+    Devuelve `(filas, modo)` donde modo es `familia=<x>` o `fallback_completo`.
+    """
+    if not catalogo_pm:
+        return [], "vacio"
+
+    if familia not in ("pesada", "ligera"):
+        log.info(
+            "Catálogo sin filtro de familia (ambigüedad) — se envía completo (%d piezas)",
+            len(catalogo_pm),
+        )
+        return list(catalogo_pm), "fallback_completo"
+
+    grupos = piezas_compatibles(catalogo_pm, familia)
+    filtrado = grupos["cabeceras"] + grupos["largueros"] + grupos["comunes"]
+    # Deduplicar por código por si un accesorio cae en comunes dos veces.
+    vistos: set[str] = set()
+    unicos: list[dict] = []
+    for p in filtrado:
+        sku = _sku_de(p) or id(p)
+        key = str(sku)
+        if key in vistos:
+            continue
+        vistos.add(key)
+        unicos.append(p)
+
+    log.info(
+        "Catálogo filtrado familia=%s: %d/%d piezas",
+        familia, len(unicos), len(catalogo_pm),
+    )
+    return unicos, f"familia={familia}"
 
 
 def piezas_compatibles(

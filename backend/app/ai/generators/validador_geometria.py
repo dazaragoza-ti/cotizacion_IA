@@ -52,9 +52,13 @@ def _color_de(mesh: trimesh.Trimesh) -> tuple:
 
 
 def _es_poste(mesh: trimesh.Trimesh) -> bool:
-    """Un poste es una caja: dos extents ~= POSTE (73mm), una extent grande (altura)."""
+    """Un poste es una caja: dos extents ~= poste (73mm pesada / 38mm ligera)."""
     dx, dy, dz = mesh.bounds[1] - mesh.bounds[0]
-    extents_chicas = sum(1 for e in (dx, dy, dz) if abs(e - m3d.POSTE) < 5)
+    tols = (m3d.POSTE_PESADA, m3d.POSTE_LIGERA, getattr(m3d, "POSTE", 73))
+    extents_chicas = sum(
+        1 for e in (dx, dy, dz)
+        if any(abs(e - t) < 5 for t in tols)
+    )
     return extents_chicas >= 2
 
 

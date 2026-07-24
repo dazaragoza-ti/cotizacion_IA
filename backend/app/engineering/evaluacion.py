@@ -90,7 +90,7 @@ def evaluar_ejemplos() -> ResultadoEvaluacion:
             ))
             continue
 
-        validacion = validator_engine.validar(proyecto)
+        validacion = validator_engine.validar(proyecto, catalogo=catalogo_pm)
         errores_compat = verificar_compatibilidad_proyecto(proyecto, catalogo_pm)
 
         evaluacion.resultados.append(ResultadoEjemplo(

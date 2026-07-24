@@ -31,6 +31,12 @@ MODEL = "claude-opus-4-7"
 MAX_TOKENS = 48000  # el render HTML + JSON + tablas pueden ser largos
 MAX_REINTENTOS = 3
 
+# Ahorro de tokens: el system estable solo lleva fichas útiles + 1–2 JSON dorados.
+# Cuestionarios, HTML de ejemplo y dumps grandes quedan fuera — van por RAG.
+_MAX_EJEMPLOS_DORADOS = 2
+_SUFIJOS_FICHA = {".md", ".txt"}
+_SUFIJOS_DORADO = {".json"}
+
 # Errores transitorios de red/servidor que vale la pena reintentar.
 REINTENTABLES = (
     anthropic.APIConnectionError,
@@ -43,15 +49,43 @@ REINTENTABLES = (
 )
 
 
-def _build_system() -> str:
-    """Concatena las instrucciones (prompts/system.md) con todos los archivos
-    de referencia que haya en knowledge/ (fichas técnicas, cuestionarios,
-    ejemplos) — EXCEPTO catalogo_pm.json, que ahora se consulta en vivo desde
-    Supabase en cada llamada (ver _bloque_catalogo_pm), para poder corregir
-    precios/códigos sin tener que redesplegar el backend.
+def _archivos_knowledge_whitelist(knowledge_dir: Path) -> list[Path]:
+    """Whitelist determinista (orden alfabético) para prompt caching estable.
 
-    El orden es determinista (alfabético) para que el prompt caching funcione
-    y abarate las peticiones repetidas.
+    Incluye:
+    - `tecnico/*.{md,txt}` — fichas técnicas compactas
+    - hasta `_MAX_EJEMPLOS_DORADOS` JSON en `ejemplos/` (dorados)
+
+    Excluye: HTML, cuestionarios, catalogo_pm.json, README, PDF/PNG, CSV grandes.
+    """
+    elegidos: list[Path] = []
+
+    tecnico = knowledge_dir / "tecnico"
+    if tecnico.is_dir():
+        for f in sorted(tecnico.iterdir()):
+            if f.is_file() and f.suffix.lower() in _SUFIJOS_FICHA and f.stem.lower() != "readme":
+                elegidos.append(f)
+
+    ejemplos = knowledge_dir / "ejemplos"
+    if ejemplos.is_dir():
+        dorados = [
+            f for f in sorted(ejemplos.iterdir())
+            if f.is_file()
+            and f.suffix.lower() in _SUFIJOS_DORADO
+            and f.stem.lower() != "readme"
+            and f.name != "catalogo_pm.json"
+        ]
+        elegidos.extend(dorados[:_MAX_EJEMPLOS_DORADOS])
+
+    return elegidos
+
+
+def _build_system() -> str:
+    """Instrucciones (prompts/system.md) + whitelist corta de knowledge/.
+
+    El catálogo vivo NO va aquí (ver `_bloque_catalogo_pm`): debe quedar en un
+    bloque system separado para que el prompt caching del cerebro no se invalide
+    cuando filtramos o actualizamos precios.
     """
     partes: list[str] = []
 
@@ -61,39 +95,35 @@ def _build_system() -> str:
 
     knowledge_dir = BASE / "knowledge"
     if knowledge_dir.exists():
-        # rglob: lee también subcarpetas (p. ej. knowledge/ejemplos/).
-        for f in sorted(knowledge_dir.rglob("*")):
-            if f.stem.lower() == "readme":
-                continue
-            if f.name == "catalogo_pm.json":
-                continue  # se arma en vivo, ver _bloque_catalogo_pm()
-            if f.is_file() and f.suffix.lower() in {".md", ".txt", ".csv", ".tsv", ".json", ".html"}:
-                rel = f.relative_to(knowledge_dir)
-                partes.append(
-                    f"\n\n# Archivo de referencia: {rel}\n\n"
-                    + f.read_text(encoding="utf-8")
-                )
+        for f in _archivos_knowledge_whitelist(knowledge_dir):
+            rel = f.relative_to(knowledge_dir)
+            partes.append(
+                f"\n\n# Archivo de referencia: {rel}\n\n"
+                + f.read_text(encoding="utf-8")
+            )
 
     return "\n".join(partes).strip()
 
 
-# Se construye una vez al arrancar (instrucciones + fichas + ejemplos — rara
-# vez cambian). El catálogo de precios NO va aquí, ver _bloque_catalogo_pm().
+# Se construye una vez al arrancar (instrucciones + fichas + 1–2 dorados).
+# Estable → cacheable. El catálogo vivo va en otro bloque.
 SYSTEM_PROMPT_BASE = _build_system()
 
 
-def _bloque_catalogo_pm() -> str:
+def _bloque_catalogo_pm(catalogo: list[dict] | None = None) -> str:
     """
-    Arma el bloque del catálogo FRESCO en cada llamada, consultando Supabase
-    (tabla catalogo_pm). Así, si corriges un precio o das de alta un código
-    nuevo en Supabase, el bot lo usa desde el siguiente mensaje — sin reiniciar
-    el proceso.
+    Bloque del catálogo FRESCO (Supabase o subset ya filtrado por familia).
+
+    Separado de SYSTEM_PROMPT_BASE a propósito: el cerebro se cachea; este
+    bloque cambia por familia / precios y tiene su propio cache_control.
     """
-    catalogo = consultar_catalogo_pm()
+    if catalogo is None:
+        catalogo = consultar_catalogo_pm()
+    # Sin indent: menos tokens que indent=2; el modelo parsea JSON compacto igual.
     return (
         "\n\n# Archivo de referencia: catalogo_pm.json (vivo desde Supabase — "
-        "tabla catalogo_pm, consultada en cada mensaje)\n\n"
-        + json.dumps(catalogo, indent=2, ensure_ascii=False)
+        "tabla catalogo_pm; puede venir filtrado por familia+comunes)\n\n"
+        + json.dumps(catalogo, ensure_ascii=False, separators=(",", ":"))
     )
 
 
@@ -102,11 +132,14 @@ async def generar(
     descripcion: str,
     imagenes: list[tuple[str, bytes]],
     pdfs: list[bytes],
+    catalogo_pm: list[dict] | None = None,
 ) -> tuple[str, int, int]:
     """Llama a Claude con la petición del usuario.
 
     - imagenes: lista de (media_type, bytes), p. ej. ("image/jpeg", b"...").
     - pdfs: lista de bytes de archivos PDF.
+    - catalogo_pm: subset opcional (familia+comunes). Si es None, consulta el
+      catálogo completo (fallback).
 
     Devuelve (texto_generado, input_tokens, output_tokens) — el uso real de
     tokens se necesita para guardarlo en disenos_racks/historial, no solo
@@ -144,7 +177,10 @@ async def generar(
     ultimo_error: Exception | None = None
     for intento in range(1, MAX_REINTENTOS + 1):
         try:
-            bloque_catalogo = _bloque_catalogo_pm()
+            # SYSTEM_PROMPT_BASE es estable (cache hit entre llamadas).
+            # bloque_catalogo es vivo/filtrado — bloque aparte para no romper
+            # el cache del cerebro cuando cambia la familia o los precios.
+            bloque_catalogo = _bloque_catalogo_pm(catalogo_pm)
             async with client.messages.stream(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
@@ -152,12 +188,12 @@ async def generar(
                     {
                         "type": "text",
                         "text": SYSTEM_PROMPT_BASE,
-                        "cache_control": {"type": "ephemeral"},  # cachea el cerebro (instrucciones+fichas+ejemplos)
+                        "cache_control": {"type": "ephemeral"},
                     },
                     {
                         "type": "text",
                         "text": bloque_catalogo,
-                        "cache_control": {"type": "ephemeral"},  # catálogo vivo, se recalcula cada llamada
+                        "cache_control": {"type": "ephemeral"},
                     },
                 ],
                 thinking={"type": "adaptive"},

@@ -21,7 +21,11 @@ from ..ai.clients import claude_client, ventas_client, qa_visual_client
 from ..ai.pipelines import pipeline
 
 from ..engineering import validator_engine
-from ..engineering.compatibility import verificar_compatibilidad_proyecto
+from ..engineering.compatibility import (
+    filtrar_catalogo_por_familia,
+    inferir_familia,
+    verificar_compatibilidad_proyecto,
+)
 from . import historial_service as historial
 from . import correcciones_pm_service as correcciones
 from ..engineering.correction_processor import correction_processor
@@ -29,7 +33,12 @@ from .catalogo_pm_service import consultar_catalogo_pm
 from ..ai.pipelines.utils import extraer_html, extraer_json, trocear
 from ..ai.adapters.adaptador_visor import layout_a_matriz_ensamble_3d
 from ..ai.rag.vector_store import vector_store
-from ..ai.context_builder import construir_descripcion_extendida
+from ..ai.context_builder import (
+    MAX_CORRECCIONES_RAG,
+    armar_mensaje_reintento,
+    construir_descripcion_extendida,
+)
+from ..ai.schemas.proyecto_pm import errores_contrato_proyecto
 from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
 from . import ventas_service
@@ -44,6 +53,8 @@ log = logging.getLogger("proyecto_pm_service")
 class ResultadoProyectoPM:
     partes_texto: list[str] = field(default_factory=list)
     validacion_texto: list[str] | None = None
+    errores_validacion: list[str] = field(default_factory=list)
+    avisos_validacion: list[str] = field(default_factory=list)
     proyecto: dict | None = None
     archivos: list[Path] = field(default_factory=list)
     link_visor_3d: str | None = None
@@ -77,7 +88,9 @@ async def generar_proyecto_pm(
 
     pipeline_tracer.emitir(solicitud_id, "rag", "Buscando correcciones similares (Voyage AI)", "en_progreso")
     try:
-        correcciones_similares = vector_store.search(descripcion, top_k=5, tipo="correccion")
+        correcciones_similares = vector_store.search(
+            descripcion, top_k=MAX_CORRECCIONES_RAG, tipo="correccion",
+        )
         pipeline_tracer.emitir(
             solicitud_id, "rag",
             f"{len(correcciones_similares)} correccion(es) similar(es) encontrada(s)", "completado",
@@ -90,13 +103,20 @@ async def generar_proyecto_pm(
     if proyecto_anterior:
         pipeline_tracer.emitir(solicitud_id, "graph", "Consultando relaciones aprendidas del proyecto anterior", "en_progreso")
     pipeline_tracer.emitir(solicitud_id, "context_builder", "Armando el prompt final para Claude", "en_progreso")
-    catalogo_pm_para_contexto = consultar_catalogo_pm() if proyecto_anterior else None
-    descripcion_para_claude = construir_descripcion_extendida(
+    catalogo_pm_completo = consultar_catalogo_pm()
+    familia_catalogo = inferir_familia(descripcion, proyecto_anterior)
+    catalogo_pm_filtrado, modo_filtro = filtrar_catalogo_por_familia(
+        catalogo_pm_completo, familia_catalogo,
+    )
+    log.info("Catálogo para proyectista: modo=%s (%d piezas)", modo_filtro, len(catalogo_pm_filtrado))
+
+    descripcion_base = construir_descripcion_extendida(
         descripcion=descripcion,
         proyecto_anterior=proyecto_anterior,
         correcciones_similares=correcciones_similares,
-        catalogo_pm=catalogo_pm_para_contexto,
+        catalogo_pm=catalogo_pm_completo if proyecto_anterior else None,
     )
+    descripcion_para_claude = descripcion_base
     if proyecto_anterior:
         pipeline_tracer.emitir(solicitud_id, "graph", "Relaciones del grafo inyectadas al prompt", "completado")
     pipeline_tracer.emitir(solicitud_id, "context_builder", "Prompt listo para Claude", "completado")
@@ -114,12 +134,14 @@ async def generar_proyecto_pm(
         try:
             texto, input_tokens, output_tokens = await claude_client.generar(
                 descripcion_para_claude, imagenes, pdfs,
+                catalogo_pm=catalogo_pm_filtrado,
                 langsmith_extra={
                     "run_id": langsmith_run_id,
                     "metadata": {
                         "session_id": session_id, "tg_user_id": tg_user_id,
                         "tg_username": tg_username, "n_imagenes": n_imgs, "n_pdfs": n_pdfs,
                         "intento": intento,
+                        "catalogo_filtro": modo_filtro,
                     }
                 },
             )
@@ -142,15 +164,23 @@ async def generar_proyecto_pm(
         errores_bloqueantes = []
         avisos = []
 
-        if proyecto:
+        # Contrato tipado del JSON (Pydantic) — antes del validador de
+        # ingeniería: si faltan claves de layout/materiales, no tiene
+        # sentido correr reglas estructurales sobre un dict incompleto.
+        errores_contrato = errores_contrato_proyecto(proyecto)
+        if errores_contrato:
+            errores_bloqueantes.extend(errores_contrato)
+            log.warning("Intento %d - Contrato JSON invalido: %s", intento, errores_contrato)
+
+        if proyecto and not errores_contrato:
             pipeline_tracer.emitir(solicitud_id, "engineering", "Validando reglas de ingenieria (determinista)", "en_progreso")
             try:
-                validacion = validator_engine.validar(proyecto)
+                catalogo_pm_actual = catalogo_pm_completo or consultar_catalogo_pm()
+                validacion = validator_engine.validar(proyecto, catalogo=catalogo_pm_actual)
                 log.info("Intento %d - Validacion: %s", intento, validacion.resumen())
                 errores_bloqueantes.extend(validacion.errores)
                 avisos.extend(validacion.advertencias)
 
-                catalogo_pm_actual = consultar_catalogo_pm()
                 errores_bloqueantes.extend(verificar_compatibilidad_proyecto(proyecto, catalogo_pm_actual))
             except Exception as e:
                 log.exception("validador fallo: %s", e)
@@ -159,16 +189,20 @@ async def generar_proyecto_pm(
                 "Diseno aprobado" if not errores_bloqueantes else f"{len(errores_bloqueantes)} error(es), regresa a Claude",
                 "completado" if not errores_bloqueantes else "error",
             )
+        elif errores_contrato:
+            pipeline_tracer.emitir(
+                solicitud_id, "engineering",
+                f"Contrato JSON invalido ({len(errores_contrato)} error(es))",
+                "error",
+            )
 
         if not errores_bloqueantes or intento >= MAX_INTENTOS_DISENO:
             break
 
         log.warning("Intento %d con errores bloqueantes, se regresan a Claude: %s", intento, errores_bloqueantes)
-        descripcion_para_claude = (
-            f"{descripcion_para_claude}\n\n"
-            "[El diseno anterior tiene errores que debes corregir. "
-            "Genera el proyecto COMPLETO otra vez, corrigiendo esto:]\n"
-            + "\n".join(f"- {e}" for e in errores_bloqueantes)
+        # Parte de descripcion_base (sin apilar reintentos) + JSON previo + errores.
+        descripcion_para_claude = armar_mensaje_reintento(
+            descripcion_base, proyecto, errores_bloqueantes,
         )
 
     resultado = ResultadoProyectoPM(
@@ -187,6 +221,9 @@ async def generar_proyecto_pm(
             compat_solo = [e for e in errores_bloqueantes if "Incompatibilidad" in e]
             if compat_solo:
                 texto_validacion += "\n\nCompatibility Engine:\n" + "\n".join(f"- {e}" for e in compat_solo)
+
+        resultado.errores_validacion = list(errores_bloqueantes)
+        resultado.avisos_validacion = list(avisos)
 
         if texto_validacion.strip():
             resultado.validacion_texto = trocear(texto_validacion.strip())
@@ -352,11 +389,13 @@ async def generar_proyecto_pm(
             if not moved and not resultado.link_visor_3d:
                 extra = "No pude generar planos/renders (faltan dependencias en el servidor?)."
                 resultado.validacion_texto = (resultado.validacion_texto or []) + [extra]
+                resultado.avisos_validacion = list(resultado.avisos_validacion) + [extra]
             pipeline_tracer.emitir(solicitud_id, "generadores", f"{len(moved)} archivo(s) generado(s)", "completado")
         except Exception as e:
             log.exception("pipeline fallo")
             extra = f"Error generando planos/renders: {e}"
             resultado.validacion_texto = (resultado.validacion_texto or []) + [extra]
+            resultado.avisos_validacion = list(resultado.avisos_validacion) + [extra]
             pipeline_tracer.emitir(solicitud_id, "generadores", f"Error generando entregables: {e}", "error")
         finally:
             shutil.rmtree(work, ignore_errors=True)

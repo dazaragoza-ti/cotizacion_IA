@@ -81,3 +81,41 @@ Veces que se ha repetido este mismo caso:
 Clave del proyecto relacionado:
 {item.get("proyecto_clave") or "—"}
 """
+
+
+def chunk_texto(texto: str, chunk_size: int = 1000, overlap: int = 150) -> list[str]:
+    """Parte un documento largo en ventanas con solape (fichas técnicas)."""
+    texto = (texto or "").strip()
+    if not texto:
+        return []
+    if len(texto) <= chunk_size:
+        return [texto]
+
+    chunks: list[str] = []
+    paso = max(chunk_size - overlap, 1)
+    inicio = 0
+    while inicio < len(texto):
+        fin = min(inicio + chunk_size, len(texto))
+        trozo = texto[inicio:fin].strip()
+        if trozo:
+            chunks.append(trozo)
+        if fin >= len(texto):
+            break
+        inicio += paso
+    return chunks
+
+
+def manual_to_document(nombre: str, fragmento: str, indice: int, total: int) -> str:
+    """Texto indexable de un fragmento de ficha técnica local."""
+    return f"""
+FICHA TÉCNICA / MANUAL
+
+Archivo:
+{nombre}
+
+Fragmento:
+{indice + 1} de {total}
+
+Contenido:
+{fragmento}
+""".strip()

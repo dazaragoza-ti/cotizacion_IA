@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from app.ai.rag.ingestors.catalogo import catalogo_ingestor
 from app.ai.rag.ingestors.correcciones import correcciones_ingestor
+from app.ai.rag.ingestors.manuales import manuales_ingestor
 
 log = logging.getLogger("rag_sync")
 
@@ -32,14 +33,13 @@ class KnowledgeSync:
         try:
             catalogo_ingestor.sync()
             correcciones_ingestor.sync()
+            # Fichas técnicas locales (knowledge/tecnico) — prompts y golden
+            # examples NO se indexan; siguen solo en disco.
+            manuales_ingestor.sync()
 
             # siguientes módulos (todavía no implementados)
-
             # reglas_ingestor.sync()
-
             # proyectos_ingestor.sync()
-
-            # manuales_ingestor.sync()
         except Exception as e:
             self.ultimo_error = str(e)
             raise

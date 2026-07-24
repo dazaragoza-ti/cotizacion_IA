@@ -36,7 +36,9 @@ log = logging.getLogger("qa_visual_client")
 BASE = Path(__file__).parent.parent  # app/ai/
 
 client = AsyncAnthropic()
-MODEL = "claude-opus-4-8"
+# Sonnet con visión (no Opus): juzgar defectos de ensamble en renders no
+# requiere Opus; Haiku también ve imágenes pero Sonnet acierta más en geometría.
+MODEL = "claude-sonnet-4-5"
 MAX_TOKENS = 1024
 
 # ⚠️ Mismo modelo vigente que ocr_service.describir_imagen_groq — si

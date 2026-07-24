@@ -29,11 +29,8 @@ from pathlib import Path
 from app.engineering.sku_diff import normalizar_sku
 
 log = logging.getLogger("validador")
-BASE = Path(__file__).resolve().parent
-# app/engineering/validator_engine.py -> app/ -> app/ai/knowledge/catalogo_pm.json
-CATALOGO_PATH = BASE.parent / "ai" / "knowledge" / "catalogo_pm.json"
 
-# ── Constantes del catálogo (fuente: catalogo_pm.json + RACKS-PEME.pdf) ─────
+# ── Constantes del catálogo (fuente: catalogo_pm / RACKS-PEME.pdf) ───────────
 FRENTES_LARGUERO_CATALOGO = [1294, 1594, 1894, 2294, 2504, 2804, 3104]   # mm
 FRENTES_CON_2_CARGADORES = [2804, 3104]                                   # ≥ 272 cm
 FONDOS_CABECERA_STOCK = [612, 917, 1232]                                  # 61, 91.5, 123 cm
@@ -110,33 +107,24 @@ class ResultadoValidacion:
 
 
 # ── Carga del catálogo ──────────────────────────────────────────────────────
-def _cargar_catalogo() -> dict:
-    if not CATALOGO_PATH.exists():
-        log.warning("catalogo_pm.json no encontrado en %s", CATALOGO_PATH)
-        return {}
-    try:
-        return json.loads(CATALOGO_PATH.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001
-        log.exception("no se pudo leer catalogo_pm.json: %s", e)
-        return {}
+def _cargar_catalogo() -> list[dict]:
+    """Misma fuente que Claude/compat/ventas: Supabase via consultar_catalogo_pm
+    (con fallback al JSON local aplanado si la consulta falla).
+
+    Import diferido para no acoplar el módulo a supabase cuando el caller
+    ya inyecta el catálogo (tests / evaluacion / pipeline).
+    """
+    from app.services.catalogo_pm_service import consultar_catalogo_pm
+    return consultar_catalogo_pm()
 
 
-def _codigos_del_catalogo(catalogo: dict) -> set[str]:
-    """Extrae todos los códigos de pieza del catálogo (recursivo)."""
+def _codigos_del_catalogo(catalogo: list[dict]) -> set[str]:
+    """Códigos de pieza del catálogo plano (filas de catalogo_pm)."""
     codigos: set[str] = set()
-
-    def _walk(obj):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k == "codigo" and isinstance(v, str):
-                    codigos.add(v)
-                else:
-                    _walk(v)
-        elif isinstance(obj, list):
-            for x in obj:
-                _walk(x)
-
-    _walk(catalogo)
+    for fila in catalogo or []:
+        codigo = fila.get("codigo")
+        if isinstance(codigo, str) and codigo:
+            codigos.add(codigo.upper())
     return codigos
 
 
@@ -500,28 +488,42 @@ def _v_capacidad(proyecto: dict, r: ResultadoValidacion) -> None:
         )
 
 
-def _mapa_capacidad_largueros(catalogo: dict) -> dict[str, float]:
-    """codigo -> carga_par_kg real de catalogo_pm.json (capacidad de ESE
-    larguero especifico segun su combinacion frente+peralte). Va de 1300 a
-    6000 kg por par segun el SKU -- muy distinto entre si."""
+def _mapa_capacidad_largueros(catalogo: list[dict]) -> dict[str, float]:
+    """codigo -> carga_kg real del catálogo (capacidad de ESE larguero
+    especifico segun su combinacion frente+peralte). Va de 1300 a 6000 kg
+    por par segun el SKU -- muy distinto entre si.
+
+    Acepta el formato plano de catalogo_pm (campo carga_kg) y, por
+    compatibilidad con filas aplanadas del JSON local, tambien carga_par_kg.
+    """
     mapa: dict[str, float] = {}
-    largueros = catalogo.get("largueros_carga_pesada_gota") or {}
-    for _grupo_peralte, lista in largueros.items():
-        for item in lista or []:
-            codigo = item.get("codigo")
-            carga = item.get("carga_par_kg")
-            if codigo and carga is not None:
-                mapa[str(codigo).upper()] = float(carga)
+    for fila in catalogo or []:
+        codigo = fila.get("codigo")
+        if not codigo:
+            continue
+        categoria = (fila.get("categoria") or "").lower()
+        cod_u = str(codigo).upper()
+        es_larguero = (
+            categoria == "larguero"
+            or cod_u.startswith(("LRS-", "LRC-", "LRL-"))
+        )
+        if not es_larguero:
+            continue
+        carga = fila.get("carga_kg")
+        if carga is None:
+            carga = fila.get("carga_par_kg")
+        if carga is not None:
+            mapa[cod_u] = float(carga)
     return mapa
 
 
-def _v_capacidad_larguero(proyecto: dict, r: ResultadoValidacion, catalogo: dict) -> None:
+def _v_capacidad_larguero(proyecto: dict, r: ResultadoValidacion, catalogo: list[dict]) -> None:
     """_v_capacidad ya revisa la capacidad TOTAL del marco (4500 kg fijo),
     pero eso no dice nada sobre si el LARGUERO especifico elegido aguanta
-    la carga por nivel: catalogo_pm.json tiene una carga_par_kg real por
-    combinacion frente+peralte que va de 1300 a 6000 kg -- un larguero de
-    frente 3104mm/peralte 100mm (1300 kg/par) puede fallar aunque el marco
-    en conjunto todavia tenga margen. Esta relacion nunca se habia validado.
+    la carga por nivel: el catálogo tiene una carga_kg real por combinacion
+    frente+peralte que va de 1300 a 6000 kg -- un larguero de frente
+    3104mm/peralte 100mm (1300 kg/par) puede fallar aunque el marco en
+    conjunto todavia tenga margen.
     """
     materiales = proyecto.get("materiales") or []
     memoria = proyecto.get("memoria") or {}
@@ -536,7 +538,7 @@ def _v_capacidad_larguero(proyecto: dict, r: ResultadoValidacion, catalogo: dict
 
     mapa_capacidad = _mapa_capacidad_largueros(catalogo)
     if not mapa_capacidad:
-        return  # catalogo_pm.json sin datos de largueros, no se puede validar
+        return  # catálogo sin datos de largueros, no se puede validar
 
     codigos_vistos: set[str] = set()
     for m in materiales:
@@ -548,7 +550,7 @@ def _v_capacidad_larguero(proyecto: dict, r: ResultadoValidacion, catalogo: dict
     for codigo in sorted(codigos_vistos):
         capacidad = mapa_capacidad.get(codigo) or mapa_capacidad.get(_codigo_base(codigo).upper())
         if capacidad is None:
-            continue  # SKU sin dato de capacidad en catalogo_pm.json (p.ej. LRC- con escalon, aun no cargado)
+            continue  # SKU sin dato de capacidad (p.ej. LRC- con escalon, aun no cargado)
 
         if carga_nivel > capacidad:
             r.errores.append(
@@ -646,8 +648,8 @@ def _v_almacenamiento_alimentos(proyecto: dict, r: ResultadoValidacion) -> None:
 
 
 def _v_codigos_existen(proyecto: dict, r: ResultadoValidacion,
-                        catalogo: dict) -> None:
-    """Avisa si hay códigos en el despiece que no están en catalogo_pm.json."""
+                        catalogo: list[dict]) -> None:
+    """Avisa si hay códigos en el despiece que no están en el catálogo PM."""
     materiales = proyecto.get("materiales") or []
     codigos_cat = _codigos_del_catalogo(catalogo)
     if not codigos_cat:
@@ -664,7 +666,7 @@ def _v_codigos_existen(proyecto: dict, r: ResultadoValidacion,
 
     if desconocidos:
         r.advertencias.append(
-            "Códigos no encontrados en catalogo_pm.json (verificar que "
+            "Códigos no encontrados en catalogo_pm (verificar que "
             "existan o ampliar catálogo): " + ", ".join(sorted(desconocidos))
         )
 
@@ -691,14 +693,24 @@ def _v_tornillo_seguridad(proyecto: dict, r: ResultadoValidacion) -> None:
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
-def validar(proyecto: dict) -> ResultadoValidacion:
-    """Valida el JSON del proyecto. Devuelve ResultadoValidacion."""
+def validar(
+    proyecto: dict,
+    catalogo: list[dict] | None = None,
+) -> ResultadoValidacion:
+    """Valida el JSON del proyecto. Devuelve ResultadoValidacion.
+
+    `catalogo` es opcional: si el caller ya tiene el catálogo plano
+    (p.ej. de consultar_catalogo_pm), pásalo para evitar un segundo fetch
+    y mantener la misma snapshot que compatibility. Si es None, se carga
+    aquí (Supabase con fallback JSON local).
+    """
     r = ResultadoValidacion()
     if not isinstance(proyecto, dict):
         r.errores.append("El proyecto no es un objeto JSON válido.")
         return r
 
-    catalogo = _cargar_catalogo()
+    if catalogo is None:
+        catalogo = _cargar_catalogo()
 
     _v_layout(proyecto, r)
     _v_peralte(proyecto, r)

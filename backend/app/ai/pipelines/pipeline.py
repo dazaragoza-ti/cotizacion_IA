@@ -120,10 +120,18 @@ def correr_pipeline(
 
     # 2) PDF de planos — inyecta los PNG generados para que los incruste
     proyecto_pdf = dict(proyecto)
+    faltan_png = []
     for clave_render, nombre_png in RENDER_KEYS.items():
         p = vistas / nombre_png
         if p.exists():
             proyecto_pdf[clave_render] = str(p)
+        else:
+            faltan_png.append(nombre_png)
+    if faltan_png:
+        log.warning(
+            "PNG faltantes para planos (%s): se usarán esquemas/placeholders",
+            ", ".join(faltan_png),
+        )
 
     json_pdf = work_dir / "proyecto_pdf.json"
     json_pdf.write_text(
