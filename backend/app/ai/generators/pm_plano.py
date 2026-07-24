@@ -867,7 +867,7 @@ def generar_plano(datos, salida):
       "layout": {
          "tipo": "Selectivo",
          "modulos_x": 8, "modulos_y": 3,
-         "frente_mm": 2724, "fondo_mm": 1100, "pasillo_mm": 3000,
+         "frente_mm": 2804, "fondo_mm": 1100, "pasillo_mm": 3000,
          "niveles": [0, 1800, 3600],  # alturas desde piso
          "altura_total_mm": 7000,
          "peralte_larguero_mm": 150

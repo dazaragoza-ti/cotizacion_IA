@@ -25,8 +25,13 @@ class DashboardRemoteDatasourceImpl implements DashboardRemoteDatasource {
       final res = await _api.dio.get(ApiEndpoints.configSupabase);
       final url = res.data["url"] as String?;
       final key = res.data["key"] as String?;
-      if (url != null && key != null && url.isNotEmpty && key.isNotEmpty) return {"url": url, "key": key};
-    } on DioException catch (_) {}
-    return null;
+      if (url != null && key != null && url.isNotEmpty && key.isNotEmpty) {
+        return {"url": url, "key": key};
+      }
+      throw Exception("Respuesta de /config/supabase incompleta (url/key vacíos)");
+    } on DioException catch (e) {
+      final detail = e.error?.toString() ?? e.message ?? "Error de red";
+      throw Exception("FastAPI no entregó config de Supabase: $detail");
+    }
   }
 }

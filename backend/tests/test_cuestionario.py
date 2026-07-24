@@ -107,6 +107,14 @@ def test_entrepiso_campos():
     assert d.accion == "preguntar"
 
 
+def test_comando_regenerar():
+    assert c.es_comando_regenerar("regenerar")
+    assert c.es_comando_regenerar("regenera el 3D")
+    assert c.es_comando_regenerar("otra vez")
+    assert not c.es_comando_regenerar("necesito un rack selectivo")
+    assert "REGENERAR" in c.texto_regeneracion("regenerar")
+
+
 if __name__ == "__main__":
     tests = [
         test_detecta_tipo,

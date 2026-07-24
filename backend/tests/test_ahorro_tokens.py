@@ -156,6 +156,9 @@ def test_whitelist_knowledge_sin_html_ni_cuestionario():
     if not knowledge.exists():
         return  # entorno sin knowledge — no falla
 
+    # Por defecto fichas tecnico/ NO van al prompt (van por RAG).
+    os.environ.pop("EMBED_FICHAS_EN_PROMPT", None)
+    # Recargar lógica: la función lee env en cada call
     archivos = claude_client._archivos_knowledge_whitelist(knowledge)
     nombres = [f.name for f in archivos]
     rutas = [str(f.relative_to(knowledge)).replace("\\", "/") for f in archivos]
@@ -164,11 +167,9 @@ def test_whitelist_knowledge_sin_html_ni_cuestionario():
     assert "catalogo_pm.json" not in nombres
     assert not any(n.startswith("cuestionario") for n in nombres)
     assert sum(1 for n in nombres if n.endswith(".json")) <= claude_client._MAX_EJEMPLOS_DORADOS
-    # Solo fichas tecnico + dorados en ejemplos/
-    assert all(
-        r.startswith("tecnico/") or r.startswith("ejemplos/")
-        for r in rutas
-    )
+    # Solo dorados en ejemplos/ (tecnico solo si EMBED_FICHAS_EN_PROMPT=1)
+    assert all(r.startswith("ejemplos/") for r in rutas)
+    assert not any(r.startswith("tecnico/") for r in rutas)
 
 
 if __name__ == "__main__":

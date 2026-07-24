@@ -20,6 +20,7 @@ import logging
 from ..clients import supabase
 from ..ai.rag.vector_store import vector_store
 from ..ai.rag.chunkers import correccion_to_document
+from ..engineering.tipo_rack import normalizar_tipo_rack
 
 log = logging.getLogger("pm_rackbot.correcciones")
 
@@ -36,6 +37,7 @@ def _registrar(
     proyecto_despues: dict | None,
     origen: str,
 ) -> int | None:
+    tipo = normalizar_tipo_rack(tipo, default="todos") if tipo else None
     try:
         existente = (
             supabase.table(TABLA).select("id, veces_repetida")
@@ -152,6 +154,24 @@ def registrar_correccion_automatica(
         session_id=session_id, tg_user_id=tg_user_id, tipo=tipo, clave=clave,
         descripcion=detalle_validacion, proyecto_antes=None,
         proyecto_despues=proyecto, origen="automatico",
+    )
+
+
+def registrar_defecto_qa(
+    session_id: str,
+    tg_user_id: int | None,
+    tipo: str | None,
+    clave: str | None,
+    detalle: str,
+    proyecto: dict | None,
+    *,
+    origen: str = "qa_visual",
+) -> int | None:
+    """Persiste defectos de QA visual / geometría para dashboard/aprendizaje."""
+    return _registrar(
+        session_id=session_id, tg_user_id=tg_user_id, tipo=tipo, clave=clave,
+        descripcion=detalle, proyecto_antes=None,
+        proyecto_despues=proyecto, origen=origen,
     )
 
 

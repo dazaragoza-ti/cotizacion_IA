@@ -47,8 +47,19 @@ class RagCubit extends Cubit<RagState> {
       bool enProgreso;
       try {
         enProgreso = await _getSyncStatus();
-      } catch (_) {
-        return; // un fallo puntual del polling no debe cortar la animacion de carga
+      } catch (e) {
+        // Un fallo puntual del polling no corta la animación; se avisa una vez.
+        final actual = state;
+        if (actual is RagResultados &&
+            !(actual.mensaje?.contains("estado de sincronización") ?? false)) {
+          emit(RagResultados(
+            query: actual.query,
+            resultados: actual.resultados,
+            sincronizando: true,
+            mensaje: "No se pudo consultar el estado de sincronización: $e",
+          ));
+        }
+        return;
       }
       if (!enProgreso) {
         _pollingSync?.cancel();

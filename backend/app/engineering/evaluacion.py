@@ -67,12 +67,16 @@ class ResultadoEvaluacion:
         return "\n".join(lineas)
 
 
-def evaluar_ejemplos() -> ResultadoEvaluacion:
+def evaluar_ejemplos(*, solo_prefijo: str | None = None) -> ResultadoEvaluacion:
     """
     Carga cada .json de knowledge/ejemplos/ (ignora README.md y cualquier
     .html) y lo corre contra validator_engine + compatibility. Un ejemplo
     "dorado" debe salir SIEMPRE limpio — si no, o el ejemplo quedó
     desactualizado, o algo que se tocó en las reglas lo rompió.
+
+    Los dorados viven SOLO en disco/git — nunca se indexan en Supabase.
+
+    `solo_prefijo`: si se pasa (p.ej. "ejemplo_cantilever"), filtra por nombre.
     """
     catalogo_pm = consultar_catalogo_pm()
     evaluacion = ResultadoEvaluacion()
@@ -81,6 +85,8 @@ def evaluar_ejemplos() -> ResultadoEvaluacion:
         return evaluacion
 
     for archivo in sorted(EJEMPLOS_DIR.glob("*.json")):
+        if solo_prefijo and not archivo.name.startswith(solo_prefijo):
+            continue
         try:
             proyecto = json.loads(archivo.read_text(encoding="utf-8"))
         except Exception as e:  # noqa: BLE001

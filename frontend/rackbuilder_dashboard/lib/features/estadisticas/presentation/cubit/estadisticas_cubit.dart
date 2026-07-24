@@ -46,12 +46,16 @@ class EstadisticasCubit extends Cubit<EstadisticasState> {
       // permanente salga arriba.
       correcciones.sort((a, b) => b.vecesRepetida.compareTo(a.vecesRepetida));
       emit((state as EstadisticasLoaded).copyWith(
-        correcciones: correcciones, cargandoCorrecciones: false,
+        correcciones: correcciones,
+        cargandoCorrecciones: false,
+        clearWarning: true,
       ));
-    } catch (_) {
-      // Silencioso: si /correcciones falla, el resto del modulo sigue util.
+    } catch (e) {
       if (state is EstadisticasLoaded) {
-        emit((state as EstadisticasLoaded).copyWith(cargandoCorrecciones: false));
+        emit((state as EstadisticasLoaded).copyWith(
+          cargandoCorrecciones: false,
+          warning: "No se pudieron cargar correcciones: $e",
+        ));
       }
     }
   }

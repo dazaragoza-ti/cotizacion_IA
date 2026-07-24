@@ -53,6 +53,8 @@ class _DesktopHistorial extends StatelessWidget {
               ? Container(height: 200, decoration: BoxDecoration(border: Border.all(color: AppColors.border, width: 2), borderRadius: BorderRadius.circular(14)),
                   child: const Center(child: Text("Selecciona una sesión", style: TextStyle(color: AppColors.textSecond, fontSize: 13))))
               : state.loadingVersiones ? const AppShimmer()
+              : state.errorVersiones != null
+                  ? AppEmptyState(icon: Icons.error_outline, message: state.errorVersiones!)
               : PanelCard(title: "Versiones", subtitle: "Sesión: ...${state.selectedSessionId!.substring(state.selectedSessionId!.length > 8 ? state.selectedSessionId!.length - 8 : 0)}",
                   child: Column(children: state.versiones.map((v) => _VersionTile(v: v)).toList()))),
         ]);
@@ -69,6 +71,8 @@ class _MobileHistorial extends StatelessWidget {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         TextButton.icon(onPressed: () => onSelect(""), icon: const Icon(Icons.arrow_back, size: 16), label: const Text("Volver a sesiones")),
         if (state.loadingVersiones) const AppShimmer()
+        else if (state.errorVersiones != null)
+          AppEmptyState(icon: Icons.error_outline, message: state.errorVersiones!)
         else ...state.versiones.map((v) => _VersionTile(v: v)),
       ]);
     }

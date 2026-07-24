@@ -27,19 +27,47 @@ from ..ai.pipelines import cuestionario
 from .mensajes_entrega import (
     armar_detalle_validacion,
     armar_mensaje_entrega,
+    armar_mensaje_qa_fallido,
     ordenar_archivos_entrega,
 )
+from ..services import telegram_session_store as session_store
 
 log = logging.getLogger("telegram.handlers")
 
 # Adjuntos pendientes por sesión — Claude los recibe como imágenes/PDF de
-# verdad, sin pasar por OCR. Se pierde si el proceso se reinicia.
+# verdad. También se persisten en Supabase (migración 0012) con TTL.
 BUFFERS: dict[str, dict] = {}
 
 
 def _buf(session_id: str) -> dict:
     return BUFFERS.setdefault(session_id, {"imagenes": [], "pdfs": [], "capciones": []})
 
+
+def _persistir_sesion(session_id: str, uid: int) -> None:
+    session_store.guardar(
+        session_id,
+        user_id=uid,
+        estado=cuestionario.serializar_estado(uid),
+        buffers=_buf(session_id),
+    )
+
+
+def _hidratar_sesion(session_id: str, uid: int) -> None:
+    estado, buffers = session_store.cargar(session_id)
+    cuestionario.hidratar_estado(uid, estado)
+    if buffers and session_id not in BUFFERS:
+        BUFFERS[session_id] = buffers
+    elif buffers and session_id in BUFFERS:
+        # Memoria local vacía → restaurar desde store
+        local = BUFFERS[session_id]
+        if not local.get("imagenes") and not local.get("pdfs"):
+            BUFFERS[session_id] = buffers
+
+
+def _limpiar_sesion(session_id: str, uid: int) -> None:
+    BUFFERS.pop(session_id, None)
+    cuestionario.limpiar(uid)
+    session_store.borrar(session_id)
 
 async def _agregar_imagen(buf: dict, mime: str, data: bytes) -> None:
     """
@@ -76,8 +104,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancelar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_id = str(update.effective_chat.id)
-    BUFFERS.pop(session_id, None)
-    cuestionario.limpiar(update.effective_user.id)
+    uid = update.effective_user.id
+    _limpiar_sesion(session_id, uid)
     await update.message.reply_text(
         "❎ Cuestionario cancelado. Cuando quieras empezar de nuevo, mándame los datos del proyecto."
     )
@@ -91,6 +119,7 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
     uid = update.effective_user.id
     user = update.effective_user
     msg = update.message
+    _hidratar_sesion(session_id, uid)
     buf = _buf(session_id)
 
     foto = msg.photo
@@ -162,6 +191,7 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
     # Adjunto sin caption ni texto: si ya veníamos conversando, solo confirmamos.
     est = cuestionario.estado_de(uid)
     n = len(buf["imagenes"]) + len(buf["pdfs"])
+    _persistir_sesion(session_id, uid)
     if est.texto_acumulado.strip():
         await msg.reply_text(f"📎 Recibí ({n} adjunto(s) en total).")
     else:
@@ -170,12 +200,12 @@ async def manejar_mensaje_telegram(update: Update, context: ContextTypes.DEFAULT
 
 async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
                      session_id: str, uid: int, user, descripcion: str):
+    _hidratar_sesion(session_id, uid)
     buf = _buf(session_id)
     n_imgs, n_pdfs_in = len(buf["imagenes"]), len(buf["pdfs"])
 
     if cuestionario.es_comando_cancelar(descripcion):
-        cuestionario.limpiar(uid)
-        BUFFERS.pop(session_id, None)
+        _limpiar_sesion(session_id, uid)
         await update.message.reply_text(
             "❎ Cuestionario cancelado. Cuando quieras empezar de nuevo, mándame los datos del proyecto."
         )
@@ -194,13 +224,22 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
         log.warning("No se pudo consultar proyecto anterior para el cuestionario: %s", e)
         hay_proyecto_anterior = False
 
-    decision = cuestionario.procesar(uid, descripcion, hay_archivos, hay_proyecto_anterior)
+    # Tras aviso QA: «regenerar» fuerza generación con prompt de corrección.
+    if hay_proyecto_anterior and cuestionario.es_comando_regenerar(descripcion):
+        descripcion = cuestionario.texto_regeneracion(descripcion)
+        decision = cuestionario.DecisionCuestionario(
+            accion="generar", texto_completo=descripcion,
+        )
+    else:
+        decision = cuestionario.procesar(uid, descripcion, hay_archivos, hay_proyecto_anterior)
 
     if decision.accion == "esperar":
+        _persistir_sesion(session_id, uid)
         return  # sin nada que generar todavía, no respondemos
     if decision.accion == "preguntar":
         # Faltan datos: preguntamos y NO llamamos a Claude. Los adjuntos
         # quedan en el buffer para cuando el usuario complete la info.
+        _persistir_sesion(session_id, uid)
         await update.message.reply_text(decision.mensaje, parse_mode="Markdown")
         return
 
@@ -225,7 +264,7 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
         tg_username=user.username,
         tg_full_name=user.full_name,
     )
-    BUFFERS.pop(session_id, None)  # limpiamos el buffer pase lo que pase
+    _limpiar_sesion(session_id, uid)
 
     if resultado.error:
         await status.edit_text(
@@ -233,6 +272,30 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
             f"{resultado.error}\n\n"
             "Revisa el requerimiento o vuelve a intentarlo en unos minutos."
         )
+        return
+
+    # Sin JSON o con errores bloqueantes: no enviar planos/3D/cotización.
+    if not resultado.proyecto or resultado.errores_validacion:
+        for parte in armar_detalle_validacion(
+            resultado.errores_validacion or ([resultado.error] if resultado.error else []),
+            resultado.avisos_validacion,
+        ):
+            await update.message.reply_text(parte, parse_mode="HTML")
+        if not resultado.proyecto:
+            await update.message.reply_text(
+                "❌ No obtuve un diseño JSON válido tras varios intentos. "
+                "Reformula el requerimiento (dims, tipo de rack, carga) y vuelve a intentarlo.",
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Hay errores bloqueantes de ingeniería. "
+                "No generé planos, modelo 3D ni cotización. "
+                "Corrige el requerimiento e indícame el ajuste para regenerar.",
+            )
+        try:
+            await status.delete()
+        except Exception:  # noqa: BLE001
+            pass
         return
 
     fallo_archivos = bool(
@@ -259,9 +322,17 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Notas del diseño (texto de Claude, sin JSON/HTML ya extraídos).
     notas = [p for p in resultado.partes_texto if p and p.strip() and p.strip() != "Listo."]
     if notas:
-        await update.message.reply_text("📝 <b>Notas del diseño</b>", parse_mode="HTML")
+        await update.message.reply_text(
+            "📝 <b>Notas del diseño</b>\n"
+            "<i>Un resumen rápido de lo que armamos:</i>",
+            parse_mode="HTML",
+        )
         for parte in notas:
             await update.message.reply_text(parte)
+
+    if resultado.aviso_qa:
+        for parte in armar_mensaje_qa_fallido(resultado.aviso_qa, regenerar=True):
+            await update.message.reply_text(parte, parse_mode="HTML")
 
     if resultado.proyecto:
         archivos = ordenar_archivos_entrega(resultado.archivos)
@@ -279,15 +350,12 @@ async def _procesar(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     log.warning("No se pudo enviar %s: %s", p, e)
 
         if resultado.propuesta_comercial:
-            await update.message.reply_text("💼 <b>Propuesta comercial</b>", parse_mode="HTML")
-            await update.message.reply_text(resultado.propuesta_comercial)
-
-        if resultado.errores_validacion:
             await update.message.reply_text(
-                "⚠️ Hay errores de validación en este diseño. "
-                "Corrige el requerimiento o indícame el ajuste y reenvíamelo "
-                "para regenerar el proyecto.",
+                "💼 <b>Propuesta comercial</b>\n"
+                "<i>Para compartir con tu cliente:</i>",
+                parse_mode="HTML",
             )
+            await update.message.reply_text(resultado.propuesta_comercial)
 
     try:
         await status.delete()

@@ -39,9 +39,12 @@ from ..ai.context_builder import (
     construir_descripcion_extendida,
 )
 from ..ai.schemas.proyecto_pm import errores_contrato_proyecto
+from ..ai.generators.validador_geometria import validar_modulo
+from ..engineering.tipo_rack import tipo_rack_de_proyecto
 from .catalogo_service import consultar_catalogo_piezas
 from .reglas_service import obtener_ultimo_diseno
 from . import ventas_service
+from . import jobs_pipeline
 from ..clients import supabase
 from ..config import URL_FRONTEND
 from ..core import pipeline_tracer, error_logger
@@ -61,6 +64,7 @@ class ResultadoProyectoPM:
     historial_id: int | None = None
     error: str | None = None
     propuesta_comercial: str | None = None
+    aviso_qa: str | None = None
 
 
 MAX_INTENTOS_DISENO = 2
@@ -81,6 +85,13 @@ async def generar_proyecto_pm(
     # persiste entre varias solicitudes de la misma conversacion) -- ver
     # pipeline_tracer y el modulo Arquitectura del Sistema del frontend.
     solicitud_id = str(uuid.uuid4())
+    job_id = jobs_pipeline.enqueue(
+        "generar_proyecto",
+        session_id=session_id,
+        tg_user_id=tg_user_id,
+        payload={"solicitud_id": solicitud_id, "descripcion_len": len(descripcion or "")},
+    )
+    jobs_pipeline.mark_running(job_id)
     pipeline_tracer.emitir(solicitud_id, "fastapi", "Solicitud recibida, orquestando el flujo", "completado")
 
     proyecto_anterior_row = historial.ultimo_proyecto_de_sesion(session_id)
@@ -100,6 +111,16 @@ async def generar_proyecto_pm(
         correcciones_similares = []
         pipeline_tracer.emitir(solicitud_id, "rag", "Busqueda RAG fallo, se continua sin evidencia", "error")
 
+    # Fichas técnicas (knowledge/tecnico) indexadas como tipo=manual — no van en system prompt.
+    try:
+        from ..ai.context_builder import MAX_MANUALES_RAG
+        manuales_rag = vector_store.search(
+            descripcion, top_k=MAX_MANUALES_RAG, tipo="manual",
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("Busqueda RAG de manuales fallo: %s", e)
+        manuales_rag = []
+
     if proyecto_anterior:
         pipeline_tracer.emitir(solicitud_id, "graph", "Consultando relaciones aprendidas del proyecto anterior", "en_progreso")
     pipeline_tracer.emitir(solicitud_id, "context_builder", "Armando el prompt final para Claude", "en_progreso")
@@ -115,6 +136,7 @@ async def generar_proyecto_pm(
         proyecto_anterior=proyecto_anterior,
         correcciones_similares=correcciones_similares,
         catalogo_pm=catalogo_pm_completo if proyecto_anterior else None,
+        manuales_rag=manuales_rag,
     )
     descripcion_para_claude = descripcion_base
     if proyecto_anterior:
@@ -155,6 +177,7 @@ async def generar_proyecto_pm(
                 n_imagenes=n_imgs, n_pdfs=n_pdfs, error=str(e)[:300],
                 session_id=session_id,
             )
+            jobs_pipeline.mark_done(job_id, error=str(e)[:300])
             return ResultadoProyectoPM(error=str(e))
         pipeline_tracer.emitir(solicitud_id, "claude", "Claude genero el diseno", "completado")
 
@@ -210,6 +233,26 @@ async def generar_proyecto_pm(
         proyecto=proyecto,
     )
 
+    # Sin JSON parseable tras N intentos → no pipeline ni entregables.
+    if not proyecto:
+        msg = (
+            "No pude obtener un JSON de diseño válido tras "
+            f"{MAX_INTENTOS_DISENO} intento(s). Reformula el requerimiento."
+        )
+        resultado.error = msg
+        resultado.errores_validacion = ["Sin JSON de proyecto parseable"]
+        resultado.historial_id = historial.registrar(
+            tg_user_id=tg_user_id, tg_username=tg_username, tg_full_name=tg_full_name,
+            descripcion=descripcion or "", respuesta_texto=texto or "",
+            proyecto_json=None, render_html=html,
+            archivos_pipeline=None,
+            n_imagenes=n_imgs, n_pdfs=n_pdfs, error=msg[:300],
+            session_id=session_id,
+        )
+        pipeline_tracer.emitir(solicitud_id, "usuario", "Entrega bloqueada: sin JSON", "error")
+        jobs_pipeline.mark_done(job_id, error="sin_json")
+        return resultado
+
     if proyecto:
         correction_processor.registrar_uso(proyecto)
         texto_validacion = ""
@@ -230,7 +273,7 @@ async def generar_proyecto_pm(
             try:
                 correction_processor.process_automatica(
                     session_id=session_id, tg_user_id=tg_user_id,
-                    tipo=proyecto.get("especificacion") or (proyecto.get("layout") or {}).get("tipo"),
+                    tipo=tipo_rack_de_proyecto(proyecto),
                     clave=proyecto.get("clave"),
                     detalle_validacion=texto_validacion.strip(),
                     proyecto=proyecto,
@@ -238,10 +281,28 @@ async def generar_proyecto_pm(
             except Exception as e:
                 log.exception("process_automatica fallo: %s", e)
 
+        # Errores bloqueantes tras N intentos → NO generar planos/3D/cotización.
+        if errores_bloqueantes:
+            resultado.historial_id = historial.registrar(
+                tg_user_id=tg_user_id, tg_username=tg_username, tg_full_name=tg_full_name,
+                descripcion=descripcion or "", respuesta_texto=texto or "",
+                proyecto_json=proyecto, render_html=html,
+                archivos_pipeline=None,
+                n_imagenes=n_imgs, n_pdfs=n_pdfs,
+                error=f"Errores bloqueantes: {len(errores_bloqueantes)}",
+                session_id=session_id,
+            )
+            pipeline_tracer.emitir(
+                solicitud_id, "usuario",
+                "Entrega bloqueada: errores de ingeniería", "error",
+            )
+            jobs_pipeline.mark_done(job_id, error="errores_bloqueantes")
+            return resultado
+
         if correcciones.es_correccion(proyecto_anterior, proyecto):
             correction_processor.process(
                 session_id=session_id, tg_user_id=tg_user_id,
-                tipo=proyecto.get("especificacion") or (proyecto.get("layout") or {}).get("tipo"),
+                tipo=tipo_rack_de_proyecto(proyecto),
                 clave=proyecto.get("clave"),
                 comentario_cliente=descripcion,
                 proyecto_antes=proyecto_anterior, proyecto_despues=proyecto,
@@ -360,9 +421,60 @@ async def generar_proyecto_pm(
                     log.warning("no se pudo persistir %s: %s", p.name, e)
             resultado.archivos = moved
 
-            # QA visual: best-effort, nunca bloquea la entrega (ver AskUserQuestion
-            # respondida por el usuario -- un falso positivo no debe frenar una
-            # venta real). Si detecta algo, solo queda registrado para revisión.
+            # Validador geométrico (mesh) ANTES del QA visual LLM.
+            # Solo reglas de selectivo (larguero/travesaño/cargador); cantilever
+            # y entrepiso usan geometría distinta.
+            try:
+                from ..ai.generators.modelo_3d import familia_geometria
+                if familia_geometria(proyecto) == "selectivo":
+                    pipeline_tracer.emitir(
+                        solicitud_id, "engineering",
+                        "Validando geometría 3D (bounding boxes)", "en_progreso",
+                    )
+                    reporte_geo = await asyncio.to_thread(validar_modulo, proyecto)
+                    if not reporte_geo.get("ok"):
+                        detalle_geo = "; ".join(
+                            f"[{d.get('severidad', '?')}] {d.get('descripcion', '')}"
+                            for d in (reporte_geo.get("defectos") or [])
+                        )
+                        log.warning("validador_geometria: %s", detalle_geo)
+                        resultado.aviso_qa = detalle_geo
+                        resultado.avisos_validacion = list(resultado.avisos_validacion) + [
+                            f"Geometría 3D: {detalle_geo}"
+                        ]
+                        error_logger.registrar_error(
+                            "generadores",
+                            f"Proyecto {proyecto.get('clave', '?')}: {detalle_geo}",
+                        )
+                        pipeline_tracer.emitir(
+                            solicitud_id, "engineering",
+                            f"Defectos geométricos: {detalle_geo}", "error",
+                        )
+                        try:
+                            correcciones.registrar_defecto_qa(
+                                session_id=session_id, tg_user_id=tg_user_id,
+                                tipo=tipo_rack_de_proyecto(proyecto),
+                                clave=proyecto.get("clave"),
+                                detalle=f"[geometria] {detalle_geo}",
+                                proyecto=proyecto, origen="geometria",
+                            )
+                        except Exception as e:
+                            log.warning("No se pudo persistir defecto geometría: %s", e)
+                    else:
+                        pipeline_tracer.emitir(
+                            solicitud_id, "engineering",
+                            "Geometría 3D OK", "completado",
+                        )
+                else:
+                    pipeline_tracer.emitir(
+                        solicitud_id, "engineering",
+                        "Validador geométrico omitido (no-selectivo)", "completado",
+                    )
+            except Exception as e:
+                log.warning("validador_geometria fallo (no bloquea): %s", e)
+
+            # QA visual: avisa al usuario si falla; no bloquea entrega de archivos
+            # (falso positivo no debe frenar una venta). Defectos → correcciones_armado.
             try:
                 # Solo las 2 mas diagnosticas (perspectiva general + detalle de
                 # union) -- mandar las 5 hace que Groq rechace la llamada
@@ -381,6 +493,19 @@ async def generar_proyecto_pm(
                     log.warning("QA visual detecto defecto(s) en %s: %s", proyecto.get("clave"), detalle)
                     error_logger.registrar_error("qa_visual", f"Proyecto {proyecto.get('clave', '?')}: {detalle}")
                     pipeline_tracer.emitir(solicitud_id, "qa_visual", f"Defecto(s) detectado(s): {detalle}", "error")
+                    resultado.aviso_qa = (
+                        f"{resultado.aviso_qa}; {detalle}" if resultado.aviso_qa else detalle
+                    )
+                    try:
+                        correcciones.registrar_defecto_qa(
+                            session_id=session_id, tg_user_id=tg_user_id,
+                            tipo=tipo_rack_de_proyecto(proyecto),
+                            clave=proyecto.get("clave"),
+                            detalle=f"[qa_visual] {detalle}",
+                            proyecto=proyecto, origen="qa_visual",
+                        )
+                    except Exception as e:
+                        log.warning("No se pudo persistir defecto QA: %s", e)
                 else:
                     pipeline_tracer.emitir(solicitud_id, "qa_visual", "Render revisado, sin defectos", "completado")
             except Exception as e:
@@ -409,6 +534,7 @@ async def generar_proyecto_pm(
         session_id=session_id,
     )
     pipeline_tracer.emitir(solicitud_id, "usuario", "Respuesta entregada al cliente", "completado")
+    jobs_pipeline.mark_done(job_id)
     return resultado
 
 

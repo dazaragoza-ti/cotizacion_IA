@@ -17,31 +17,28 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
   Future<void> cargarErrores() async {
     try {
       final errores = await _ds.getErroresActivos();
-      emit(state.copyWith(errores: errores, cargando: false));
-    } catch (_) {
-      // Silencioso: si el propio endpoint de monitoreo falla, no queremos que
-      // el modulo de arquitectura (que es estatico) se rompa por eso.
-      emit(state.copyWith(cargando: false));
+      emit(state.copyWith(errores: errores, cargando: false, clearMensaje: true));
+    } catch (e) {
+      emit(state.copyWith(
+        cargando: false,
+        mensajeError: "No se pudieron cargar errores del sistema: $e",
+      ));
     }
   }
 
   Future<void> cargarMetricas() async {
     try {
       final metricas = await _ds.getMetricas();
-      emit(state.copyWith(metricas: metricas));
-    } catch (_) {
-      // Silencioso, mismo criterio que cargarErrores: el mapa estatico no
-      // debe romperse si /sistema/metricas falla.
+      emit(state.copyWith(metricas: metricas, clearMensaje: true));
+    } catch (e) {
+      emit(state.copyWith(
+        mensajeError: "No se pudieron cargar métricas de arquitectura: $e",
+      ));
     }
   }
 
   /// Refresca al abrir la pantalla, cada 30s como respaldo, y al instante
-  /// cuando Supabase Realtime avisa un cambio en las tablas vigiladas
-  /// (sistema_errores, knowledge_edges, knowledge_chunks, reglas_armado,
-  /// disenos_racks). El polling de 30s se conserva como red de seguridad
-  /// por si Realtime no esta disponible (falta publicar la tabla, red, etc).
-  /// Ademas escucha eventos_pipeline, que trazan UNA solicitud puntual paso
-  /// a paso -- eso anima el mapa mismo, no solo los contadores.
+  /// cuando Supabase Realtime avisa un cambio en las tablas vigiladas.
   void iniciarPolling() {
     cargarErrores();
     cargarMetricas();
@@ -53,9 +50,6 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
 
     _cambiosSub?.cancel();
     _cambiosSub = _ds.watchCambios().listen((_) {
-      // Debounce: una sincronizacion de RAG puede insertar decenas de
-      // knowledge_chunks en rafaga -- se espera a que se calme antes de
-      // re-consultar, para no martillar el backend.
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 800), () {
         cargarErrores();
@@ -77,9 +71,6 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     final actuales = Map<String, String>.from(state.pasosEnCurso)..[nodoId] = evento.paso;
     emit(state.copyWith(pasosEnCurso: actuales));
 
-    // "en_progreso" se apaga solo si no llega su cierre a tiempo (la
-    // solicitud pudo perderse a medio camino); "completado"/"error" se
-    // apagan casi de inmediato, con un respiro para que se alcance a ver.
     final espera = evento.estado == "en_progreso"
         ? const Duration(seconds: 20)
         : const Duration(milliseconds: 700);
@@ -94,7 +85,13 @@ class ArquitecturaCubit extends Cubit<ArquitecturaState> {
     try {
       await _ds.resolverError(id);
       await cargarErrores();
-    } catch (_) {}
+    } catch (e) {
+      emit(state.copyWith(mensajeError: "No se pudo resolver el error: $e"));
+    }
+  }
+
+  void limpiarMensaje() {
+    if (state.mensajeError != null) emit(state.copyWith(clearMensaje: true));
   }
 
   @override

@@ -71,8 +71,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _switch(BuildContext ctx, DashModule m) {
     setState(() => _module = m);
-    // Solo carga si ya hay conexión activa
-    if (ctx.read<DashboardCubit>().state is DashboardConnected) {
+    // Carga si FastAPI o Supabase ya respondieron (módulos usan uno u otro)
+    if (ctx.read<DashboardCubit>().state.backendOk ||
+        ctx.read<DashboardCubit>().state.supabaseOk) {
       switch (m) {
         case DashModule.alimentar:
           ctx.read<AlimentarIaCubit>().abrirExplorador();
@@ -109,9 +110,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         BlocProvider(create: (_) => sl<ArquitecturaCubit>()),
       ],
       child: BlocConsumer<DashboardCubit, DashboardState>(
-        // Escuchar cuando la conexión se establece y disparar carga del módulo activo
+        listenWhen: (prev, next) {
+          final statusChanged = prev.backendOk != next.backendOk ||
+              prev.supabaseOk != next.supabaseOk ||
+              (prev is DashboardConnecting) != (next is DashboardConnecting);
+          final errorChanged = next is DashboardDisconnected &&
+              (prev is! DashboardDisconnected ||
+                  prev.message != next.message);
+          final warningChanged = next is DashboardConnected &&
+              next.warning != null &&
+              next.warning !=
+                  (prev is DashboardConnected ? prev.warning : null);
+          return statusChanged || errorChanged || warningChanged;
+        },
         listener: (ctx, state) {
-          if (state is DashboardConnected && !state.loadingMetrics) {
+          if (state is DashboardDisconnected) {
+            showAppError(ctx, state.message);
+          } else if (state is DashboardConnected && state.warning != null) {
+            showAppWarning(ctx, state.warning!);
+          }
+          if ((state.backendOk || state.supabaseOk) &&
+              state is! DashboardConnecting) {
             _loadActiveModule(ctx);
           }
         },

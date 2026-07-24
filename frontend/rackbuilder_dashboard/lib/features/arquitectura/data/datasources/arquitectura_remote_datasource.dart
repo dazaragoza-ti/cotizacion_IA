@@ -140,7 +140,15 @@ class ArquitecturaRemoteDatasourceImpl implements ArquitecturaRemoteDatasource {
           if (eventos.isClosed) return;
           try {
             eventos.add(EventoPipeline.fromJson(payload.newRecord));
-          } catch (_) {}
+          } catch (e) {
+            // Payload malformado: se ignora el evento puntual pero no se
+            // silencia el fallo de Realtime completo (ver catch externo).
+            assert(() {
+              // ignore: avoid_print
+              print('EventoPipeline inválido: $e');
+              return true;
+            }());
+          }
         },
       );
       _canal = canal;

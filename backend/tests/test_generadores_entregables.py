@@ -44,8 +44,9 @@ def test_poste_pesada_vs_ligera(proyecto_pesada, proyecto_ligera, proyecto_canti
     assert modelo_3d.poste_mm_de(proyecto_pesada) == 73
     assert modelo_3d.poste_mm_de(proyecto_ligera) == 38
     assert modelo_3d.es_carga_ligera(proyecto_ligera) is True
-    assert modelo_3d.geometria_selectiva_soportada(proyecto_pesada) is True
-    assert modelo_3d.geometria_selectiva_soportada(proyecto_cantilever) is False
+    assert modelo_3d.familia_geometria(proyecto_pesada) == "selectivo"
+    assert modelo_3d.familia_geometria(proyecto_cantilever) == "cantilever"
+    assert modelo_3d.geometria_selectiva_soportada(proyecto_cantilever) is True
 
 
 def test_cotizacion_pdf_totales_y_descuento(proyecto_pesada, tmp_path):
@@ -86,7 +87,8 @@ def test_pm_plano_sin_png_no_falla(proyecto_pesada, tmp_path):
     assert out.exists() and out.stat().st_size > 1000
 
 
-def test_modelo_3d_stub_cantilever(proyecto_cantilever, tmp_path):
+@pytest.mark.slow
+def test_modelo_3d_cantilever_genera_mesh(proyecto_cantilever, tmp_path):
     json_path = tmp_path / "p.json"
     json_path.write_text(json.dumps(proyecto_cantilever), encoding="utf-8")
     out = tmp_path / "modelo"
@@ -94,8 +96,7 @@ def test_modelo_3d_stub_cantilever(proyecto_cantilever, tmp_path):
     vistas = out / "vistas"
     assert (vistas / "render_perspectiva.png").exists()
     assert (vistas / "AVISO_GEOMETRIA.txt").exists()
-    # No debe crear GLB real de selectivo
-    assert not (out / "CANT-01.glb").exists()
+    assert (out / "CANT-01.glb").exists() or (out / "CANT-01.obj").exists()
 
 
 @pytest.mark.slow

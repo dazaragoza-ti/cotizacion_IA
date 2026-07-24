@@ -31,8 +31,11 @@ MODEL = "claude-opus-4-7"
 MAX_TOKENS = 48000  # el render HTML + JSON + tablas pueden ser largos
 MAX_REINTENTOS = 3
 
-# Ahorro de tokens: el system estable solo lleva fichas útiles + 1–2 JSON dorados.
-# Cuestionarios, HTML de ejemplo y dumps grandes quedan fuera — van por RAG.
+# Ahorro de tokens: el system estable solo lleva 1–2 JSON dorados (formato).
+# Fichas `tecnico/*` van por RAG (`tipo=manual`) tras sync — no se embeben aquí
+# salvo EMBED_FICHAS_EN_PROMPT=1 (fallback offline / sin chunks).
+# Cuestionarios, HTML y dumps grandes quedan fuera.
+# Dorados: SOLO disco/git (`knowledge/ejemplos/`); NUNCA se indexan en Supabase.
 _MAX_EJEMPLOS_DORADOS = 2
 _SUFIJOS_FICHA = {".md", ".txt"}
 _SUFIJOS_DORADO = {".json"}
@@ -49,22 +52,31 @@ REINTENTABLES = (
 )
 
 
+def _embeber_fichas_en_prompt() -> bool:
+    """True solo si se fuerza fallback (sin RAG) vía env."""
+    import os
+    return os.getenv("EMBED_FICHAS_EN_PROMPT", "").strip().lower() in ("1", "true", "yes")
+
+
 def _archivos_knowledge_whitelist(knowledge_dir: Path) -> list[Path]:
     """Whitelist determinista (orden alfabético) para prompt caching estable.
 
-    Incluye:
-    - `tecnico/*.{md,txt}` — fichas técnicas compactas
-    - hasta `_MAX_EJEMPLOS_DORADOS` JSON en `ejemplos/` (dorados)
+    Incluye por defecto:
+    - hasta `_MAX_EJEMPLOS_DORADOS` JSON en `ejemplos/` (dorados, solo disco)
+
+    Fichas `tecnico/*`: NO por defecto (van por RAG `tipo=manual`).
+    Con `EMBED_FICHAS_EN_PROMPT=1` se re-embeben (híbrido de emergencia).
 
     Excluye: HTML, cuestionarios, catalogo_pm.json, README, PDF/PNG, CSV grandes.
     """
     elegidos: list[Path] = []
 
-    tecnico = knowledge_dir / "tecnico"
-    if tecnico.is_dir():
-        for f in sorted(tecnico.iterdir()):
-            if f.is_file() and f.suffix.lower() in _SUFIJOS_FICHA and f.stem.lower() != "readme":
-                elegidos.append(f)
+    if _embeber_fichas_en_prompt():
+        tecnico = knowledge_dir / "tecnico"
+        if tecnico.is_dir():
+            for f in sorted(tecnico.iterdir()):
+                if f.is_file() and f.suffix.lower() in _SUFIJOS_FICHA and f.stem.lower() != "readme":
+                    elegidos.append(f)
 
     ejemplos = knowledge_dir / "ejemplos"
     if ejemplos.is_dir():

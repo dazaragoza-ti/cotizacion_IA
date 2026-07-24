@@ -21,6 +21,7 @@ class AppConstants {
 /// Endpoints del backend FastAPI
 class ApiEndpoints {
   ApiEndpoints._();
+  static const String health              = '/';
   static const String configSupabase      = '/config/supabase';
   static const String storageFiles        = '/storage/files';
   static const String storageOptimize     = '/storage/files/optimize';

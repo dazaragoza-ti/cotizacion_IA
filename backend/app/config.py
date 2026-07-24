@@ -14,8 +14,13 @@ BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# URL de tu visualizador alojado en GitHub Pages
-URL_FRONTEND = "https://dazaragoza-ti.github.io/cotizacion_IA/index.html"
+# URL del visor 3D (GitHub Pages). Preferir VISOR_3D_URL si está en .env.
+URL_FRONTEND = (
+    os.getenv("VISOR_3D_URL")
+    or os.getenv("URL_FRONTEND")
+    or "https://dazaragoza-ti.github.io/cotizacion_IA/index.html"
+)
+VISOR_3D_URL = URL_FRONTEND  # alias explícito para deploy / docs
 
 # Orígenes CORS permitidos explícitamente (producción).
 CORS_ORIGINS = [

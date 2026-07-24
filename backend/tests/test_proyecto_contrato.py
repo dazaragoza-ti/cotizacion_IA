@@ -121,7 +121,7 @@ def test_inferir_tipo_rack_y_bloque_reglas_sin_supabase():
     assert cb._inferir_tipo_rack(
         "ajuste",
         {"especificacion": "Rack selectivo carga pesada gota"},
-    ) == "Rack selectivo carga pesada gota"
+    ) == "pesada"
 
     original = cb.consultar_reglas_armado
     try:

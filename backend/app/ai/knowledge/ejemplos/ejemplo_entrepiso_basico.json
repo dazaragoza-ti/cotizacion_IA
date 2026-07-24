@@ -1,0 +1,53 @@
+{
+  "_nota": "DORADO en disco/git (NO Supabase). Formato entrepiso/mezzanine con contrato de rejilla simple.",
+  "proyecto": "PROYECTO EJEMPLO — ENTREPISO BÁSICO",
+  "clave": "ENT-001",
+  "cliente": "(-) CLIENTE EJEMPLO ENTREPISO",
+  "elaboro": "Xocotzin",
+  "reviso": "Antonio Fuentes",
+  "aprobo": "Rosa Reyes",
+  "fecha": "23/07/2026",
+  "revision": "R0",
+  "material": "Acero rolado en frío",
+  "especificacion": "Entrepiso / mezzanine carga pesada (oficina + picking)",
+  "calibre": "Cal 14",
+  "dim_corte": "—",
+  "layout": {
+    "tipo": "Entrepiso",
+    "modulos_x": 3,
+    "modulos_y": 2,
+    "frente_mm": 2294,
+    "fondo_mm": 917,
+    "pasillo_mm": 2500,
+    "niveles": [0, 2748],
+    "altura_total_mm": 2748,
+    "peralte_larguero_mm": 150
+  },
+  "materiales": [
+    {"pzas": 8, "codigo": "CRG-7136", "descripcion": "CABECERA 91.5X272 CARGA PESADA GOTA", "color": "AZUL", "obs": "Columnas del entrepiso", "precio": 2485.04},
+    {"pzas": 12, "codigo": "LRS-7364", "descripcion": "LARGUERO PESADO 2294MM PERALTE 150MM SIN ESCALON", "color": "NARANJA", "obs": "Pares por bay en piso elevado", "precio": 1520.35},
+    {"pzas": 6, "codigo": "CA-7511", "descripcion": "CARGADOR 91.5", "color": "—", "obs": "1 por par (frente < 2804mm)", "precio": 237.10},
+    {"pzas": 36, "codigo": "EEX-0925", "descripcion": "ENTREPISO EXTRUIDO CAL 14 24X91", "color": "NARANJA", "obs": "Cubierta del piso elevado", "precio": 510.87},
+    {"pzas": 24, "codigo": "MPR0272", "descripcion": "TORNILLO HEX GALV 5/16\" X 3/4\" ALTA RESISTENCIA", "color": "—", "obs": "2 por larguero", "precio": 4.89},
+    {"pzas": 64, "codigo": "MPR0313", "descripcion": "TAQUETE TIPO ARPÓN 1/2\" X 4 1/2\"", "color": "—", "obs": "8 por cabecera", "precio": 32.72},
+    {"pzas": 48, "codigo": "CNP-7931", "descripcion": "CALZA PARA NIVELAR PISO", "color": "—", "obs": "6 por cabecera", "precio": 30.91}
+  ],
+  "memoria": {
+    "tipo_carga": "Entrepiso / mezzanine — oficina y picking",
+    "tarima_lxa": "Piso de trabajo (no tarima)",
+    "peso_tarima_kg": 0,
+    "tarimas_nivel": 0,
+    "carga_nivel_kg": 500,
+    "carga_modulo_kg": 500,
+    "cap_marco_kg": 4500,
+    "factor_seguridad": 1.5,
+    "anclaje": "Taquete arpón 1/2\" x 4½ (MPR0313)",
+    "montacargas": "Acceso manual / patín — sin montacargas"
+  },
+  "observaciones": [
+    "Ejemplo dorado de FORMATO para entrepiso (solo disco/git, no Supabase).",
+    "layout.tipo=Entrepiso; un nivel de piso elevado (niveles=[0, altura]).",
+    "Sin defensas NOM-006: acceso manual declarado. Calzas 6×8 cabeceras."
+  ],
+  "render_path": null
+}

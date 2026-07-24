@@ -13,7 +13,7 @@ class SidebarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final connected = state is DashboardConnected;
+    final connected = state.backendOk || state.supabaseOk;
     return Container(
       width: 260,
       margin: const EdgeInsets.fromLTRB(12, 12, 0, 12),
@@ -41,12 +41,9 @@ class SidebarWidget extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text("ESTADO", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.textHint, letterSpacing: 1.5)),
             const SizedBox(height: 10),
-            Row(children: [
-              PulseDot(color: connected ? AppColors.emerald : AppColors.red),
-              const SizedBox(width: 8),
-              Text(connected ? "Conexión Activa" : "Desconectado",
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.slate)),
-            ]),
+            _EstadoFila(label: "FastAPI", ok: state.fastApi.ok, checking: state.fastApi.checking),
+            const SizedBox(height: 6),
+            _EstadoFila(label: "Supabase", ok: state.supabase.ok, checking: state.supabase.checking),
             if (!connected) ...[
               const SizedBox(height: 8),
               SizedBox(width: double.infinity, child: OutlinedButton.icon(
@@ -59,5 +56,24 @@ class SidebarWidget extends StatelessWidget {
         ),
       ]),
     );
+  }
+}
+
+class _EstadoFila extends StatelessWidget {
+  final String label;
+  final bool ok;
+  final bool checking;
+  const _EstadoFila({required this.label, required this.ok, required this.checking});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = checking ? AppColors.amber : (ok ? AppColors.emerald : AppColors.red);
+    final texto = checking ? "…" : (ok ? "OK" : "Off");
+    return Row(children: [
+      PulseDot(color: color),
+      const SizedBox(width: 8),
+      Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.slate, fontSize: 13))),
+      Text(texto, style: TextStyle(fontWeight: FontWeight.w700, color: color, fontSize: 12)),
+    ]);
   }
 }

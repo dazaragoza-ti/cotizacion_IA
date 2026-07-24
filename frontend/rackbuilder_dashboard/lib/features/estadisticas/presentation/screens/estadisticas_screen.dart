@@ -39,7 +39,16 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => BlocBuilder<EstadisticasCubit, EstadisticasState>(
+  Widget build(BuildContext context) => BlocConsumer<EstadisticasCubit, EstadisticasState>(
+    listenWhen: (prev, next) =>
+        next is EstadisticasLoaded &&
+        next.warning != null &&
+        next.warning != (prev is EstadisticasLoaded ? prev.warning : null),
+    listener: (ctx, state) {
+      if (state is EstadisticasLoaded && state.warning != null) {
+        showAppWarning(ctx, state.warning!);
+      }
+    },
     builder: (ctx, state) {
       final campo = state is EstadisticasLoaded ? state.campo : camposEstadisticas.first;
       final top = state is EstadisticasLoaded ? state.top : const [];
@@ -88,6 +97,7 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
             )),
             const SizedBox(width: 8),
             ElevatedButton(
+
               onPressed: () => ctx.read<EstadisticasCubit>().buscarSku(_buscarCtrl.text),
               child: const Text("Buscar"),
             ),

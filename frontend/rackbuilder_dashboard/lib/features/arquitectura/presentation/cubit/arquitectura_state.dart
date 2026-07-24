@@ -10,6 +10,7 @@ class ArquitecturaState {
   final Map<String, dynamic> metricas;
   final bool enVivoConectado;
   final Map<String, String> pasosEnCurso;
+  final String? mensajeError;
 
   const ArquitecturaState({
     this.errores = const [],
@@ -17,6 +18,7 @@ class ArquitecturaState {
     this.metricas = const {},
     this.enVivoConectado = false,
     this.pasosEnCurso = const {},
+    this.mensajeError,
   });
 
   ArquitecturaState copyWith({
@@ -25,13 +27,17 @@ class ArquitecturaState {
     Map<String, dynamic>? metricas,
     bool? enVivoConectado,
     Map<String, String>? pasosEnCurso,
-  }) => ArquitecturaState(
-    errores: errores ?? this.errores,
-    cargando: cargando ?? this.cargando,
-    metricas: metricas ?? this.metricas,
-    enVivoConectado: enVivoConectado ?? this.enVivoConectado,
-    pasosEnCurso: pasosEnCurso ?? this.pasosEnCurso,
-  );
+    String? mensajeError,
+    bool clearMensaje = false,
+  }) =>
+      ArquitecturaState(
+        errores: errores ?? this.errores,
+        cargando: cargando ?? this.cargando,
+        metricas: metricas ?? this.metricas,
+        enVivoConectado: enVivoConectado ?? this.enVivoConectado,
+        pasosEnCurso: pasosEnCurso ?? this.pasosEnCurso,
+        mensajeError: clearMensaje ? null : (mensajeError ?? this.mensajeError),
+      );
 
   Set<String> get nodosConError => errores.map((e) => e.componente).toSet();
 

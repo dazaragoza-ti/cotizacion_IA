@@ -27,36 +27,25 @@ MAX_REGLAS_ARMADO = 15
 MAX_RELACIONES_GRAFO = 8
 MAX_CORRECCIONES_RAG = 3
 MAX_CHARS_POR_CORRECCION = 1200
+MAX_MANUALES_RAG = 4
+MAX_CHARS_POR_MANUAL = 1800
 
 
 def _inferir_tipo_rack(
     descripcion: str,
     proyecto_anterior: dict | None,
 ) -> str:
-    """Tipo de rack para filtrar `reglas_armado`.
-
-    Prioriza la especificación del proyecto previo (mismo valor que escribe
-    PromotionEngine / correcciones). Si no hay, intenta keywords del mensaje;
-    si nada encaja, `todos` (solo reglas universales).
+    """Tipo canónico para filtrar `reglas_armado`:
+    pesada | ligera | cantilever | entrepiso | todos.
     """
     if proyecto_anterior:
-        espec = (proyecto_anterior.get("especificacion") or "").strip()
-        if espec:
-            return espec
-        tipo_layout = ((proyecto_anterior.get("layout") or {}).get("tipo") or "").strip()
-        if tipo_layout:
-            return tipo_layout
+        from ..engineering.tipo_rack import tipo_rack_de_proyecto
+        tip = tipo_rack_de_proyecto(proyecto_anterior, default="")
+        if tip and tip != "todos":
+            return tip
 
-    texto = (descripcion or "").lower()
-    if "cantilever" in texto:
-        return "cantilever"
-    if "entrepiso" in texto or "mezanine" in texto or "mezzanine" in texto:
-        return "entrepiso"
-    if "carga ligera" in texto or "ligera gota" in texto:
-        return "ligera"
-    if "carga pesada" in texto or "pesada gota" in texto:
-        return "pesada"
-    return "todos"
+    from ..engineering.tipo_rack import normalizar_tipo_rack
+    return normalizar_tipo_rack(descripcion, default="todos")
 
 
 def _bloque_reglas_armado(tipo_rack: str, *, max_reglas: int = MAX_REGLAS_ARMADO) -> str:
@@ -149,6 +138,33 @@ def _bloque_correcciones_rag(
     )
 
 
+def _bloque_manuales_rag(
+    manuales: list[dict] | None,
+    *,
+    max_manuales: int = MAX_MANUALES_RAG,
+    max_chars: int = MAX_CHARS_POR_MANUAL,
+) -> str:
+    """Fichas técnicas vía RAG (`tipo=manual`). Sustituyen el embed en system prompt."""
+    if not manuales:
+        return ""
+    trozos: list[str] = []
+    for m in manuales[:max_manuales]:
+        texto = (m.get("contenido") or "").strip()
+        if not texto:
+            continue
+        if len(texto) > max_chars:
+            texto = texto[: max_chars - 1] + "…"
+        ref = (m.get("referencia_id") or m.get("fuente") or "ficha").strip()
+        trozos.append(f"### {ref}\n{texto}")
+    if not trozos:
+        return ""
+    return (
+        "[Fichas técnicas relevantes (RAG tipo=manual) — verdad técnica PM; "
+        "prioridad sobre memoria del modelo; aplica reglas de decisión al pie de la letra]\n"
+        + "\n\n".join(trozos)
+    )
+
+
 def armar_mensaje_reintento(
     descripcion_base: str,
     proyecto_previo: dict | None,
@@ -177,6 +193,7 @@ def construir_descripcion_extendida(
     correcciones_similares: list[dict] | None,
     catalogo_pm: list[dict] | None = None,
     tipo_rack: str | None = None,
+    manuales_rag: list[dict] | None = None,
 ) -> str:
     """
     Arma el texto final que se le manda a Claude, agregando (en este orden):
@@ -187,7 +204,8 @@ def construir_descripcion_extendida(
        system vía claude_client (aquí se estrecha aún más por frente/fondo).
     3. Relaciones aprendidas del Knowledge Graph (top-N).
     4. Reglas de armado activas (top-N).
-    5. Correcciones RAG similares (top-N, truncadas).
+    5. Fichas técnicas RAG (`tipo=manual`, top-N).
+    6. Correcciones RAG similares (top-N, truncadas).
 
     Si no hay nada que agregar, devuelve `descripcion` tal cual.
     """
@@ -237,6 +255,10 @@ def construir_descripcion_extendida(
     bloque_reglas = _bloque_reglas_armado(tipo)
     if bloque_reglas:
         partes.append(bloque_reglas)
+
+    bloque_manuales = _bloque_manuales_rag(manuales_rag)
+    if bloque_manuales:
+        partes.append(bloque_manuales)
 
     if correcciones_similares:
         bloque = _bloque_correcciones_rag(correcciones_similares)

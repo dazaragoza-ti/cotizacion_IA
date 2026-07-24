@@ -69,7 +69,7 @@ Future<void> setupServiceLocator() async {
   sl.registerLazySingleton<DashboardRepository>(() => sl<DashboardRepositoryImpl>());
   sl.registerLazySingleton(() => GetMetricsUsecase(sl()));
   // Pasar repo concreto al cubit para evitar el hack (as dynamic)._repo
-  sl.registerFactory(() => DashboardCubit(sl(), sl<DashboardRepositoryImpl>()));
+  sl.registerFactory(() => DashboardCubit(sl(), sl<DashboardRepositoryImpl>(), sl()));
 
   // ── Catálogo ──────────────────────────────────────────────────────────────
   sl.registerLazySingleton<CatalogoRemoteDatasource>(

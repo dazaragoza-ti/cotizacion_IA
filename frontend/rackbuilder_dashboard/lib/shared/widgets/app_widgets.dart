@@ -8,14 +8,35 @@ export '../../core/theme/app_theme.dart' show AppColors, Bp;
 // ── Connection Badge ──────────────────────────────────────────────────────────
 class ConnectionBadge extends StatelessWidget {
   final bool connected;
+  final bool checking;
   final String text;
-  const ConnectionBadge({super.key, required this.connected, required this.text});
+  final String? shortText;
+  const ConnectionBadge({
+    super.key,
+    required this.connected,
+    required this.text,
+    this.checking = false,
+    this.shortText,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final bg = connected ? AppColors.emeraldLight : AppColors.redLight;
-    final fg = connected ? AppColors.emerald      : AppColors.red;
+    final Color bg;
+    final Color fg;
+    if (checking) {
+      bg = const Color(0xFFFFF7ED);
+      fg = AppColors.amber;
+    } else if (connected) {
+      bg = AppColors.emeraldLight;
+      fg = AppColors.emerald;
+    } else {
+      bg = AppColors.redLight;
+      fg = AppColors.red;
+    }
     final mobile = Bp.isMobile(context);
+    final label = checking
+        ? (mobile ? '…' : 'Checking')
+        : (mobile ? (shortText ?? (connected ? 'Online' : 'Off')) : text);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 400),
       padding: EdgeInsets.symmetric(horizontal: mobile ? 8 : 12, vertical: mobile ? 5 : 7),
@@ -23,11 +44,36 @@ class ConnectionBadge extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         PulseDot(color: fg),
         const SizedBox(width: 6),
-        Text(connected ? (mobile ? 'Online' : text) : (mobile ? 'Off' : text),
-            style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: mobile ? 11 : 13)),
+        Text(label, style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: mobile ? 11 : 13)),
       ]),
     );
   }
+}
+
+/// SnackBar de error flotante — mensaje útil, no tragar excepciones en silencio.
+void showAppError(BuildContext context, String message) {
+  if (!context.mounted) return;
+  final trimmed = message.trim();
+  if (trimmed.isEmpty) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(trimmed),
+    backgroundColor: AppColors.red,
+    behavior: SnackBarBehavior.floating,
+    duration: const Duration(seconds: 4),
+  ));
+}
+
+/// SnackBar informativo (warnings, avisos no fatales).
+void showAppWarning(BuildContext context, String message) {
+  if (!context.mounted) return;
+  final trimmed = message.trim();
+  if (trimmed.isEmpty) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(trimmed),
+    backgroundColor: AppColors.amber,
+    behavior: SnackBarBehavior.floating,
+    duration: const Duration(seconds: 3),
+  ));
 }
 
 // ── Pulse Dot ─────────────────────────────────────────────────────────────────

@@ -1,0 +1,53 @@
+{
+  "_nota": "DORADO en disco/git (NO Supabase). Formato cantilever: mismo contrato de rejilla simple + despiece catalogado.",
+  "proyecto": "PROYECTO EJEMPLO — CANTILÉVER BÁSICO",
+  "clave": "CAN-001",
+  "cliente": "(-) CLIENTE EJEMPLO CANTILEVER",
+  "elaboro": "Xocotzin",
+  "reviso": "Antonio Fuentes",
+  "aprobo": "Rosa Reyes",
+  "fecha": "23/07/2026",
+  "revision": "R0",
+  "material": "Acero rolado en frío",
+  "especificacion": "Rack cantiléver carga pesada (tubos / perfiles)",
+  "calibre": "Cal 14",
+  "dim_corte": "—",
+  "layout": {
+    "tipo": "Cantilever",
+    "modulos_x": 4,
+    "modulos_y": 1,
+    "frente_mm": 2504,
+    "fondo_mm": 1232,
+    "pasillo_mm": 3500,
+    "niveles": [0, 1500, 3001],
+    "altura_total_mm": 3001,
+    "peralte_larguero_mm": 150
+  },
+  "materiales": [
+    {"pzas": 5, "codigo": "CRG-7147", "descripcion": "CABECERA 123X302 CARGA PESADA GOTA", "color": "AZUL", "obs": "Columnas / marcos", "precio": 2974.92},
+    {"pzas": 16, "codigo": "LRS-7365", "descripcion": "LARGUERO PESADO 2504MM PERALTE 150MM SIN ESCALON", "color": "NARANJA", "obs": "Pares por nivel", "precio": 1655.87},
+    {"pzas": 8, "codigo": "CA-7512", "descripcion": "CARGADOR 123", "color": "—", "obs": "1 por par (frente < 2804mm)", "precio": 282.81},
+    {"pzas": 32, "codigo": "MPR0272", "descripcion": "TORNILLO HEX GALV 5/16\" X 3/4\" ALTA RESISTENCIA", "color": "—", "obs": "2 por larguero", "precio": 4.89},
+    {"pzas": 40, "codigo": "MPR0313", "descripcion": "TAQUETE TIPO ARPÓN 1/2\" X 4 1/2\"", "color": "—", "obs": "8 por cabecera", "precio": 32.72},
+    {"pzas": 30, "codigo": "CNP-7931", "descripcion": "CALZA PARA NIVELAR PISO", "color": "—", "obs": "6 por cabecera", "precio": 30.91},
+    {"pzas": 2, "codigo": "DR-7452", "descripcion": "DEFENSA RACK GRANDE", "color": "AMARILLO", "obs": "NOM-006-STPS-2023, esquinas a pasillo", "precio": 1720.17}
+  ],
+  "memoria": {
+    "tipo_carga": "Cantiléver carga pesada — tubos y perfiles",
+    "tarima_lxa": "Perfiles 6 m (apoyo en brazos)",
+    "peso_tarima_kg": 800,
+    "tarimas_nivel": 2,
+    "carga_nivel_kg": 1600,
+    "carga_modulo_kg": 1600,
+    "cap_marco_kg": 4500,
+    "factor_seguridad": 1.5,
+    "anclaje": "Taquete arpón 1/2\" x 4½ (MPR0313)",
+    "montacargas": "Contrabalanceado, pasillo 3.5 m"
+  },
+  "observaciones": [
+    "Ejemplo dorado de FORMATO para cantiléver (solo disco/git, no Supabase).",
+    "layout.tipo=Cantilever; códigos de familia pesada gota de catálogo PM.",
+    "Defensas amarillas por NOM-006. Calzas 6 por cabecera."
+  ],
+  "render_path": null
+}

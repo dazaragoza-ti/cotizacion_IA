@@ -7,12 +7,11 @@ Construye un modelo 3D con proporciones reales del catálogo PM:
 - X-bracing simétrica en cabecera
 - Entrepaños visibles en cada nivel
 - Cargadores (solo carga pesada; ligera usa tensores en catálogo)
+- Cantilever: columnas + brazos horizontales (geometría simplificada usable)
+- Entrepiso: columnas + vigas + deck de piso (geometría simplificada usable)
 
 Exporta OBJ, DAE (COLLADA, importable directo en SketchUp) y GLB,
 más renders ortográficos e isométrico desde matplotlib.
-
-Limitación: geometría real solo para rack **selectivo**. Cantilever /
-entrepiso generan stubs PNG con aviso explícito (no inventan geometría).
 """
 
 import json
@@ -33,6 +32,8 @@ COL_GRIS = (0.45, 0.45, 0.48, 1.0)
 COL_ENTREPANO = (0.85, 0.45, 0.20, 1.0)  # naranja más claro
 COL_PLACA = (0.20, 0.20, 0.22, 1.0)
 COL_SUELO = (0.92, 0.93, 0.94, 1.0)
+COL_BRAZO = (0.90, 0.55, 0.10, 1.0)
+COL_DECK = (0.70, 0.72, 0.75, 1.0)
 
 
 def _box(x, y, z, dx, dy, dz, color):
@@ -92,7 +93,8 @@ DIAG_TH = 18      # mm — solera 1/8"x1" diagonal (~25mm visual)
 # quedaba inconsistente con la regla real documentada/validada).
 FRENTES_CON_2_CARGADORES = (2804, 3104)
 
-TIPOS_SIN_GEOMETRIA = ("cantilever", "entrepiso", "mezzanine", "mezanine", "mezzanín")
+TIPOS_CANTILEVER = ("cantilever",)
+TIPOS_ENTREPISO = ("entrepiso", "mezzanine", "mezanine", "mezzanín")
 
 
 def es_carga_ligera(datos: dict) -> bool:
@@ -111,10 +113,31 @@ def tipo_sistema(datos: dict) -> str:
     return str((datos.get("layout") or {}).get("tipo") or "Selectivo")
 
 
+def _tipo_lower(datos: dict) -> str:
+    return tipo_sistema(datos).lower()
+
+
+def es_cantilever(datos: dict) -> bool:
+    t = _tipo_lower(datos)
+    return any(k in t for k in TIPOS_CANTILEVER)
+
+
+def es_entrepiso(datos: dict) -> bool:
+    t = _tipo_lower(datos)
+    return any(k in t for k in TIPOS_ENTREPISO)
+
+
 def geometria_selectiva_soportada(datos: dict) -> bool:
-    """Solo selectivo tiene geometría real en este generador."""
-    t = tipo_sistema(datos).lower()
-    return not any(k in t for k in TIPOS_SIN_GEOMETRIA)
+    """True si el generador produce mesh (selectivo, cantilever o entrepiso)."""
+    return True  # todos los tipos tipados tienen geometría (simplificada o completa)
+
+
+def familia_geometria(datos: dict) -> str:
+    if es_cantilever(datos):
+        return "cantilever"
+    if es_entrepiso(datos):
+        return "entrepiso"
+    return "selectivo"
 
 
 def construir_cabecera_pm(x0, y0, altura_mm, fondo_mm, niveles=None, peralte_mm=0,
@@ -220,8 +243,127 @@ def construir_entrepano(x0, y0, z0, frente, fondo, peralte=40):
     return [_box(x0, y0, z0, frente, fondo, peralte, COL_ENTREPANO)]
 
 
+def construir_columna_cantilever(x0, y0, altura_mm, poste_mm=None):
+    """Columna vertical + placa base (cantilever)."""
+    poste = POSTE if poste_mm is None else int(poste_mm)
+    placa = PLACA_LIGERA if poste <= POSTE_LIGERA + 2 else PLACA_PESADA
+    meshes = []
+    meshes.append(_box(x0, y0, 0, poste, poste, altura_mm, COL_AZUL))
+    pad = (placa - poste) / 2
+    meshes.append(_box(x0 - pad, y0 - pad, -PLACA_H, placa, placa, PLACA_H, COL_PLACA))
+    return meshes
+
+
+def construir_brazo_cantilever(x0, y0, z0, largo_mm, ancho_mm=80, alto_mm=60):
+    """Brazo horizontal que sale de la columna en +Y (lado de carga)."""
+    return [_box(x0, y0, z0, ancho_mm, largo_mm, alto_mm, COL_BRAZO)]
+
+
+def construir_modulo_cantilever(x0, y0, datos):
+    """Módulo cantilever simplificado: 2 columnas + brazos a cada nivel.
+
+    Convención layout:
+      - frente_mm = separación entre columnas (eje X)
+      - fondo_mm = largo del brazo (proyección en Y)
+      - niveles = alturas de brazos (incluye 0 = piso)
+    """
+    L = datos["layout"]
+    frente = L["frente_mm"]
+    fondo = L["fondo_mm"]
+    altura = L["altura_total_mm"]
+    niveles = L.get("niveles") or [0, altura]
+    poste = poste_mm_de(datos)
+    meshes = []
+
+    meshes.extend(construir_columna_cantilever(x0, y0, altura, poste_mm=poste))
+    meshes.extend(construir_columna_cantilever(x0 + frente, y0, altura, poste_mm=poste))
+
+    for z in (altura * 0.35, altura * 0.7, max(poste, altura - 40)):
+        meshes.append(_bar(
+            (x0 + poste / 2, y0 + poste / 2, z),
+            (x0 + frente + poste / 2, y0 + poste / 2, z),
+            DIAG_TH, COL_AZUL,
+        ))
+
+    brazo_w = max(50, poste)
+    for nivel_z in niveles[1:]:
+        z0 = max(0, nivel_z - 60)
+        meshes.extend(construir_brazo_cantilever(
+            x0 + (poste - brazo_w) / 2, y0 + poste, z0, fondo, brazo_w, 60,
+        ))
+        meshes.extend(construir_brazo_cantilever(
+            x0 + frente + (poste - brazo_w) / 2, y0 + poste, z0, fondo, brazo_w, 60,
+        ))
+    return meshes
+
+
+def construir_corrida_cantilever(x0, y0, n_modulos, datos):
+    L = datos["layout"]
+    frente = L["frente_mm"]
+    meshes = []
+    for i in range(n_modulos):
+        meshes.extend(construir_modulo_cantilever(x0 + i * frente, y0, datos))
+    return meshes
+
+
+def construir_modulo_entrepiso(x0, y0, datos):
+    """Entrepiso simplificado: 4 columnas + vigas perimetrales + deck."""
+    L = datos["layout"]
+    frente = float(L["frente_mm"])
+    fondo = float(L["fondo_mm"])
+    altura = float(L["altura_total_mm"])
+    niveles = L.get("niveles") or [0, altura]
+    poste = max(80, poste_mm_de(datos) + 20)
+    meshes = []
+
+    for dx, dy in ((0, 0), (frente, 0), (0, fondo), (frente, fondo)):
+        meshes.append(_box(x0 + dx, y0 + dy, 0, poste, poste, altura, COL_AZUL))
+        pad = 15
+        meshes.append(_box(
+            x0 + dx - pad, y0 + dy - pad, -PLACA_H,
+            poste + 2 * pad, poste + 2 * pad, PLACA_H, COL_PLACA,
+        ))
+
+    viga_h = 120
+    viga_t = 60
+    decks = [z for z in niveles if z > 0] or [altura]
+    for z_deck in decks:
+        z_viga = max(0, z_deck - viga_h)
+        meshes.append(_box(x0, y0, z_viga, frente + poste, viga_t, viga_h, COL_NARANJA))
+        meshes.append(_box(x0, y0 + fondo, z_viga, frente + poste, viga_t, viga_h, COL_NARANJA))
+        meshes.append(_box(x0, y0, z_viga, viga_t, fondo + poste, viga_h, COL_NARANJA))
+        meshes.append(_box(x0 + frente, y0, z_viga, viga_t, fondo + poste, viga_h, COL_NARANJA))
+        paso = 1500
+        n_int = max(0, int(frente // paso))
+        for i in range(1, n_int + 1):
+            xi = x0 + i * (frente / (n_int + 1))
+            meshes.append(_box(xi, y0, z_viga, viga_t, fondo + poste, viga_h, COL_GRIS))
+        deck_th = 40
+        meshes.append(_box(
+            x0 + viga_t, y0 + viga_t, z_deck - deck_th,
+            max(100, frente - viga_t), max(100, fondo - viga_t),
+            deck_th, COL_DECK,
+        ))
+    return meshes
+
+
+def construir_corrida_entrepiso(x0, y0, n_modulos, datos):
+    L = datos["layout"]
+    frente = L["frente_mm"]
+    meshes = []
+    for i in range(n_modulos):
+        meshes.extend(construir_modulo_entrepiso(x0 + i * frente, y0, datos))
+    return meshes
+
+
 def construir_modulo(x0, y0, datos, con_entrepano=True):
-    """Un módulo completo: 2 cabeceras + largueros + cargadores + entrepaños."""
+    """Un módulo completo según familia (selectivo / cantilever / entrepiso)."""
+    fam = familia_geometria(datos)
+    if fam == "cantilever":
+        return construir_modulo_cantilever(x0, y0, datos)
+    if fam == "entrepiso":
+        return construir_modulo_entrepiso(x0, y0, datos)
+
     L = datos["layout"]
     frente = L["frente_mm"]
     fondo = L["fondo_mm"]
@@ -286,7 +428,13 @@ def construir_modulo(x0, y0, datos, con_entrepano=True):
 
 
 def construir_corrida(x0, y0, n_modulos, datos, con_entrepano=True):
-    """Corrida de n módulos: las cabeceras intermedias se comparten."""
+    """Corrida de n módulos según familia geométrica."""
+    fam = familia_geometria(datos)
+    if fam == "cantilever":
+        return construir_corrida_cantilever(x0, y0, n_modulos, datos)
+    if fam == "entrepiso":
+        return construir_corrida_entrepiso(x0, y0, n_modulos, datos)
+
     L = datos["layout"]
     frente = L["frente_mm"]
     fondo = L["fondo_mm"]
@@ -552,16 +700,18 @@ def generar(datos_json_path, out_dir):
     clave = datos.get("clave") or "PROYECTO"
     titulo = datos.get("proyecto") or clave
     meta = _meta_dims(datos)
+    fam = familia_geometria(datos)
 
-    if not geometria_selectiva_soportada(datos):
-        _generar_stubs_no_soportado(datos, vistas)
-        # Marcador vacío para que el pipeline no asuma GLB válido
-        (out_dir / f"{clave}_SIN_GEOMETRIA.txt").write_text(
-            f"Sin mesh 3D: tipo={tipo_sistema(datos)}\n", encoding="utf-8"
+    if fam != "selectivo":
+        aviso = vistas / "AVISO_GEOMETRIA.txt"
+        aviso.write_text(
+            f"Tipo: {meta['tipo']} (familia={fam})\n"
+            "Geometría 3D SIMPLIFICADA usable (no catálogo GLB de piezas reales).\n"
+            "Úsala para proporciones y layout; no para fabricación millimétrica.\n",
+            encoding="utf-8",
         )
-        return
 
-    print(f"Construyendo modelo COMPLETO (poste {meta['poste']} mm, {meta['carga']})...")
+    print(f"Construyendo modelo COMPLETO ({fam}, poste {meta['poste']} mm, {meta['carga']})...")
     mesh_full = construir_proyecto(datos)
     print(f"  {len(mesh_full.vertices)} vert, {len(mesh_full.faces)} caras")
 

@@ -14,10 +14,8 @@ Modo híbrido (igual que antes):
 Si ya hay proyecto en la sesión y el usuario no está a medio cuestionario,
 se salta el cuestionario (correcciones). Ver `procesar(..., hay_proyecto_anterior)`.
 
-Estado por usuario en memoria.
-TODO(persistencia): volcar `_ESTADOS` a Redis/Supabase por `uid` si el
-proceso del bot reinicia a menudo; la API (`estado_de` / `limpiar` /
-`procesar`) puede quedarse igual.
+Estado por usuario: caché en memoria + persistencia Supabase vía
+`telegram_session_store` (chat_id). Ver migración 0012.
 """
 from __future__ import annotations
 
@@ -511,7 +509,8 @@ class EstadoUsuario:
         return self.tipo_rack is not None and len(self.faltantes) == 0
 
 
-# Estado global (por user_id). En producción podría persistir — ver TODO arriba.
+# Caché en memoria (por user_id). La fuente de verdad entre reinicios es
+# Supabase (`telegram_sesiones`), hidratada desde handlers con chat_id.
 _ESTADOS: dict[int, EstadoUsuario] = {}
 
 
@@ -523,6 +522,21 @@ def estado_de(uid: int) -> EstadoUsuario:
 
 def limpiar(uid: int) -> None:
     _ESTADOS.pop(uid, None)
+
+
+def serializar_estado(uid: int) -> dict:
+    """Snapshot JSON-friendly del estado en memoria (para persistir)."""
+    from ...services.telegram_session_store import estado_a_dict
+    return estado_a_dict(estado_de(uid))
+
+
+def hidratar_estado(uid: int, data: dict | None) -> EstadoUsuario:
+    """Restaura estado desde persistencia sin pisar si ya hay conversación local."""
+    from ...services.telegram_session_store import aplicar_estado_dict
+    est = estado_de(uid)
+    if data and not est.texto_acumulado.strip():
+        aplicar_estado_dict(est, data)
+    return est
 
 
 # ── Construcción de mensajes ───────────────────────────────────────────────
@@ -627,6 +641,45 @@ def es_comando_cancelar(texto: str) -> bool:
         return False
     t = texto.strip().lower()
     return t in ("/cancelar", "/cancel", "/reset", "/abandonar")
+
+
+_RE_REGENERAR = re.compile(
+    r"^\s*(?:/"  # slash opcional estilo comando
+    r")?(?:regenerar|regenera|regen|otra\s*vez|rehacer|"
+    r"corrige(?:\s+el)?\s*3d|vuelve?\s+a\s+generar)\s*"
+    r"(?:el\s+(?:proyecto|3d|modelo|diseño))?\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def es_comando_regenerar(texto: str) -> bool:
+    """True si el usuario pide regenerar (tras aviso QA u otro fallo)."""
+    if not texto or not texto.strip():
+        return False
+    t = texto.strip()
+    if _RE_REGENERAR.match(t):
+        return True
+    # Frases cortas con la raíz regener-
+    low = t.lower()
+    if len(t) <= 40 and re.search(r"\bregener", low):
+        return True
+    return False
+
+
+def texto_regeneracion(texto_usuario: str | None = None) -> str:
+    """Prompt explícito para Claude cuando el usuario escribe regenerar."""
+    base = (
+        "REGENERAR: vuelve a generar el proyecto completo (JSON + entregables) "
+        "corrigiendo defectos de calidad 3D / armado del intento anterior. "
+        "Conserva la misma clave y sube la revisión. No reinicies el diseño "
+        "desde cero salvo que el layout sea inviable."
+    )
+    extra = (texto_usuario or "").strip()
+    if extra and not es_comando_regenerar(extra):
+        return f"{base}\n\nAjuste pedido por el cliente: {extra}"
+    if extra and es_comando_regenerar(extra) and len(extra) > 20:
+        return f"{base}\n\nDetalle del cliente: {extra}"
+    return base
 
 
 # ── Stub para pruebas manuales ─────────────────────────────────────────────

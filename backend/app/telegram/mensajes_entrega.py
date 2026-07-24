@@ -86,17 +86,17 @@ def _estado_validacion(
         n = len(errores)
         return (
             f"❌ Validación: {n} error{'es' if n != 1 else ''} "
-            f"— conviene corregir antes de cotizar o fabricar",
+            f"— conviene corregirlos antes de cotizar o fabricar",
             "error",
         )
     if avisos:
         n = len(avisos)
         return (
-            f"⚠️ Validación: OK con {n} advertencia{'s' if n != 1 else ''} "
-            f"(revisar detalle abajo)",
+            f"⚠️ Validación: todo bien, con {n} advertencia{'s' if n != 1 else ''} "
+            f"(detalle abajo)",
             "aviso",
         )
-    return ("✅ Validación: sin observaciones", "ok")
+    return ("✅ Validación: todo en orden", "ok")
 
 
 def armar_mensaje_entrega(
@@ -109,7 +109,7 @@ def armar_mensaje_entrega(
     fallo_archivos: bool = False,
 ) -> list[str]:
     """Mensaje principal de cierre: resumen, validación, adjuntos y visor."""
-    lineas: list[str] = ["🏗️ <b>Proyecto listo</b>", ""]
+    lineas: list[str] = ["¡Listo! 🏗️ Aquí tienes tu proyecto", ""]
 
     tipo = _tipo_proyecto(proyecto)
     cliente = (proyecto or {}).get("cliente") if proyecto else None
@@ -130,7 +130,7 @@ def armar_mensaje_entrega(
 
     entregables = _lista_entregables(archivos)
     if entregables:
-        lineas.append("<b>📎 Se adjuntan:</b>")
+        lineas.append("<b>📎 Te mando estos archivos:</b>")
         for item in entregables:
             lineas.append(f"• {_esc(item)}")
         lineas.append("")
@@ -151,15 +151,22 @@ def armar_mensaje_entrega(
 
     if nivel == "error":
         lineas.append(
-            "Corrige los datos del requerimiento (o indícame el ajuste) "
-            "y vuelve a enviármelo para regenerar el proyecto."
+            "Corrige los datos del requerimiento (o dime el ajuste) "
+            "y lo regeneramos juntos."
         )
     elif nivel == "aviso":
         lineas.append(
-            "Puedes usar los entregables; revisa las advertencias antes de cerrar con el cliente."
+            "Puedes usar los entregables; revisa las advertencias "
+            "antes de cerrar con el cliente."
+        )
+    elif link_visor_3d:
+        lineas.append(
+            "Revisa el visor y los adjuntos. Si algo no cuadra, escríbeme y lo afinamos."
         )
     else:
-        lineas.append("Revisa los archivos adjuntos y el visor. Si algo no cuadra, escríbeme la corrección.")
+        lineas.append(
+            "Revisa los archivos. Si algo no cuadra, escríbeme y lo afinamos."
+        )
 
     return trocear("\n".join(lineas).strip(), _LIMITE)
 
@@ -181,9 +188,33 @@ def armar_detalle_validacion(
             lineas.append(f"• {_esc(e)}")
         lineas.append("")
     if avisos:
-        lineas.append("<b>Advertencias:</b>")
+        lineas.append("<b>Advertencias (revisar):</b>")
         for a in avisos:
             lineas.append(f"• {_esc(a)}")
+    return trocear("\n".join(lineas).strip(), _LIMITE)
+
+
+def armar_mensaje_qa_fallido(detalle: str, *, regenerar: bool = True) -> list[str]:
+    """Aviso claro cuando QA visual o validador geométrico detecta defectos."""
+    lineas = [
+        "🔍 <b>Revisión de calidad 3D</b>",
+        "",
+        "Noté posibles defectos en el modelo o los renders:",
+        f"• {_esc(detalle)}",
+        "",
+    ]
+    if regenerar:
+        lineas.extend([
+            "¿Qué quieres hacer?",
+            "1️⃣ Escribe <b>regenerar</b> — vuelvo a generar el proyecto/3D "
+            "corrigiendo estos defectos (sin reiniciar el cuestionario).",
+            "2️⃣ Describe el arreglo — p. ej. «baja el larguero del nivel 2» "
+            "o «quita el entrepaño que cruza».",
+            "",
+            "<i>También vale: «regenera», «otra vez», «corrige el 3D».</i>",
+        ])
+    else:
+        lineas.append("Dale un vistazo al visor y a los renders antes de cotizar.")
     return trocear("\n".join(lineas).strip(), _LIMITE)
 
 

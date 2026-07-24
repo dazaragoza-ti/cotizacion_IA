@@ -27,6 +27,9 @@ Antes del Sprint 2 el esquema vivía **solo** en el proyecto remoto de Supabase
 | `0009_eventos_pipeline.sql` | Tabla `eventos_pipeline` (traza paso a paso de una solicitud individual) + publicación Realtime | ✅ aplicada (verificado en vivo: tabla con datos + Realtime OK; índice `idx_eventos_pipeline_solicitud` no confirmado por SQL) |
 | `0010_clientes.sql` | Tabla `clientes` (Cotizador IA: historial de compras para descuentos) + `cliente_id` en `proyectos_pm_historial` | ✅ aplicada (verificado en vivo: tabla `clientes` + columna `cliente_id`; índices de la migración no confirmados por SQL) |
 | `0011_indices_session_id.sql` | Índices sobre `session_id` en `disenos_racks` y `proyectos_pm_historial` (la consulta más frecuente del sistema, sin cubrir) | ❓ no verificable sin SQL (`pg_indexes`); columnas `session_id` existen — re-aplicar el `.sql` (idempotente) en SQL Editor si el SELECT no los lista |
+| `0012_telegram_sesiones.sql` | Tabla `telegram_sesiones` (cuestionario + buffers Telegram, TTL 24h) | ❌ no aplicada (2026-07-23: REST `PGRST205` — tabla inexistente; sin `DATABASE_URL`/`SERVICE_ROLE`/psql ni proyecto linked al CLI para DDL) |
+| `0013_rls_visor_anon.sql` | Policies RLS recomendadas para visor anon + RPC `get_diseno_por_session` | ❌ no aplicada (2026-07-23: RPC `get_diseno_por_session` ausente `PGRST202`; mismo bloqueo DDL — pegar SQL en SQL Editor) |
+| `0014_jobs_pipeline.sql` | Tabla `jobs_pipeline` (cola opcional async del bot) | ❌ no aplicada — pegar en SQL Editor; el código hace no-op si falta |
 
 ## Pendiente: baseline (0000)
 
@@ -40,8 +43,10 @@ pg_dump --schema-only --no-owner --no-privileges \
   "postgresql://...supabase..." > backend/db/migrations/0000_baseline.sql
 ```
 
+Ver también `backend/DEPLOY.md`.
+
 Tablas que el código ya usa hoy (referencia, para validar el dump):
 `knowledge_chunks`, `knowledge_sources`, `knowledge_entities`,
 `knowledge_edges`, `catalogo_pm`, `catalogo_piezas`, `reglas_armado`,
 `correcciones_armado`, `proyectos_pm`, `proyectos_pm_historial`,
-`disenos_racks`, `cotizaciones`; y el RPC `match_knowledge` (pgvector).
+`disenos_racks`, `cotizaciones`, `telegram_sesiones`; y el RPC `match_knowledge` (pgvector).

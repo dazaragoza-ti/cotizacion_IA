@@ -14,15 +14,36 @@ class ModelosRemoteDatasourceImpl implements ModelosRemoteDatasource {
 
   @override
   Future<List<StorageFileModel>> listModelos() async {
+    final errors = <Object>[];
     final futures = await Future.wait([
-      _fetchFiles(AppConstants.bucketModelos, AppConstants.folderModelos3D),
-      _fetchFiles(AppConstants.bucketModelos, ""),
+      _fetchFiles(AppConstants.bucketModelos, AppConstants.folderModelos3D)
+          .catchError((Object e) {
+        errors.add(e);
+        return <StorageFileModel>[];
+      }),
+      _fetchFiles(AppConstants.bucketModelos, "")
+          .catchError((Object e) {
+        errors.add(e);
+        return <StorageFileModel>[];
+      }),
     ]);
     final unique = <String, StorageFileModel>{};
-    for (final list in futures) { for (final f in list) { unique[f.path] = f; } }
-    final result = unique.values.where((f) =>
-        f.name.toLowerCase().endsWith(".glb") || f.name.toLowerCase().endsWith(".gltf")).toList()
+    for (final list in futures) {
+      for (final f in list) {
+        unique[f.path] = f;
+      }
+    }
+    final result = unique.values
+        .where((f) =>
+            f.name.toLowerCase().endsWith(".glb") ||
+            f.name.toLowerCase().endsWith(".gltf"))
+        .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+
+    // Si no hay nada y al menos una carpeta falló, no devolver [] silencioso.
+    if (result.isEmpty && errors.isNotEmpty) {
+      throw errors.first;
+    }
     return result;
   }
 
@@ -31,8 +52,13 @@ class ModelosRemoteDatasourceImpl implements ModelosRemoteDatasource {
       final res = await _api.dio.get(ApiEndpoints.storageFiles,
           queryParameters: {"bucket": bucket, "folder": folder});
       final files = (res.data["files"] as List<dynamic>? ?? []);
-      return files.map((f) => StorageFileModel.fromJson(f as Map<String, dynamic>)).toList();
-    } on DioException { return []; }
+      return files
+          .map((f) => StorageFileModel.fromJson(f as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      final detail = e.error?.toString() ?? e.message ?? "Error de red";
+      throw Exception("No se pudieron listar modelos ($bucket/$folder): $detail");
+    }
   }
 
   @override

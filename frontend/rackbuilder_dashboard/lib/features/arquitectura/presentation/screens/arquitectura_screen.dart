@@ -44,7 +44,15 @@ class _ArquitecturaScreenState extends State<ArquitecturaScreen> with SingleTick
   }
 
   @override
-  Widget build(BuildContext context) => BlocBuilder<ArquitecturaCubit, ArquitecturaState>(
+  Widget build(BuildContext context) => BlocConsumer<ArquitecturaCubit, ArquitecturaState>(
+    listenWhen: (prev, next) =>
+        next.mensajeError != null && next.mensajeError != prev.mensajeError,
+    listener: (context, state) {
+      if (state.mensajeError != null) {
+        showAppError(context, state.mensajeError!);
+        context.read<ArquitecturaCubit>().limpiarMensaje();
+      }
+    },
     builder: (context, state) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         const Text("Arquitectura del sistema", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textPrimary)),

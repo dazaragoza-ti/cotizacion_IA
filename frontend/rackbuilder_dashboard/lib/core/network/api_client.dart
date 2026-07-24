@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../constants/app_constants.dart';
 
 /// Cliente HTTP centralizado con Dio — interceptores, timeouts y manejo de errores
 class ApiClient {
@@ -26,6 +27,14 @@ class ApiClient {
   }
 
   String get baseUrl => dio.options.baseUrl;
+
+  /// Health check del backend FastAPI (`GET /`).
+  /// Lanza [DioException] si el servidor no responde o no está sano.
+  Future<bool> checkHealth() async {
+    final res = await dio.get(ApiEndpoints.health);
+    final status = res.data is Map ? res.data['status'] : null;
+    return res.statusCode == 200 && (status == null || status == 'healthy');
+  }
 }
 
 /// Reintenta con backoff ante errores transitorios (timeouts, sin conexion,

@@ -8,9 +8,10 @@ class TopbarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mobile  = Bp.isMobile(context);
-    final connected = state is DashboardConnected;
-    final reconnecting = state is DashboardConnecting;
+    final mobile = Bp.isMobile(context);
+    final reconnecting = state is DashboardConnecting ||
+        state.fastApi.checking ||
+        state.supabase.checking;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       padding: EdgeInsets.symmetric(horizontal: mobile ? 14 : 20, vertical: mobile ? 10 : 14),
@@ -40,7 +41,20 @@ class TopbarWidget extends StatelessWidget {
         if (reconnecting)
           const Padding(padding: EdgeInsets.only(right: 10),
               child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.amber))),
-        ConnectionBadge(connected: connected, text: connected ? "Conexión Activa" : "Desconectado"),
+        Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          ConnectionBadge(
+            connected: state.fastApi.ok,
+            checking: state.fastApi.checking,
+            text: state.fastApi.ok ? "FastAPI OK" : "FastAPI Off",
+            shortText: "API",
+          ),
+          ConnectionBadge(
+            connected: state.supabase.ok,
+            checking: state.supabase.checking,
+            text: state.supabase.ok ? "Supabase OK" : "Supabase Off",
+            shortText: "SB",
+          ),
+        ]),
       ]),
     );
   }
